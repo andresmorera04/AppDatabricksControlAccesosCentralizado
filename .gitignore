@@ -1,0 +1,182 @@
+# ============================================================================
+# .gitignore — AppDatabricksControlAccesosCentralizado
+# ============================================================================
+# Cobertura: macOS, Python, Databricks Asset Bundles (DABs), Java,
+# Node.js, TypeScript y shell (bash/zsh).
+#
+# Regla de oro: se ignora SOLO lo GENERADO o lo LOCAL/PERSONAL. Todo lo que
+# se puede regenerar a partir del código versionado (cachés, artefactos de
+# build, dependencias instaladas, estado local de una herramienta) no va al
+# repositorio. El código fuente, la configuración declarativa y los lockfiles
+# SÍ se versionan.
+#
+# IMPORTANTE (Databricks): `databricks bundle` respeta este archivo al
+# sincronizar archivos al workspace. Una regla demasiado amplia puede impedir
+# SILENCIOSAMENTE que notebooks/src se desplieguen. No ignores databricks.yml,
+# resources/ ni src/.
+# ============================================================================
+
+
+# ----------------------------------------------------------------------------
+# macOS — metadata del Finder y Spotlight
+# ----------------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Archivos "._*" (AppleDouble) que macOS crea en volúmenes no HFS+.
+._*
+
+# Índices y carpetas del sistema que se propagan en volúmenes externos/red.
+.Spotlight-V100
+.Trashes
+.TemporaryItems
+.fseventsd
+
+
+# ----------------------------------------------------------------------------
+# Python
+# ----------------------------------------------------------------------------
+# Bytecode compilado y extensiones compiladas (se regeneran del .py).
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Entornos virtuales (se reproducen a partir del lockfile).
+.venv
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Caché y resultados de herramientas de test, lint y tipado.
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Metadatos de empaquetado (setuptools).
+*.egg-info/
+*.egg
+.installed.cfg
+
+
+# ----------------------------------------------------------------------------
+# Databricks Asset Bundles (DABs)
+# ----------------------------------------------------------------------------
+# Estado local de despliegue/sincronización del bundle (deployment.json,
+# snapshots <guid>.json, etc.). Es por-usuario y por-workspace: versionarlo
+# provoca conflictos de sync y despliegues incorrectos. El propio
+# `databricks bundle init` añade esta entrada automáticamente.
+.databricks/
+
+
+# ----------------------------------------------------------------------------
+# Java / JVM
+# ----------------------------------------------------------------------------
+*.class
+*.jar
+*.war
+*.nar
+*.ear
+
+# Build de Maven y Gradle.
+target/
+.gradle/
+
+# Volcados de crash de la JVM.
+hs_err_pid*
+replay_pid*
+
+
+# ----------------------------------------------------------------------------
+# Node.js
+# ----------------------------------------------------------------------------
+# Dependencias instaladas (se reproducen con package-lock.json / yarn.lock).
+node_modules/
+jspm_packages/
+
+# Logs de depuración de los gestores de paquetes.
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Estado local de gestores alternativos.
+.npm
+.pnpm-store/
+.yarn/
+.yarn-integrity
+
+# Caché de lint / REPL.
+.eslintcache
+.node_repl_history
+
+# Cobertura de tests.
+.nyc_output/
+coverage/
+
+
+# ----------------------------------------------------------------------------
+# TypeScript
+# ----------------------------------------------------------------------------
+# Caché de build incremental (el código fuente .ts SÍ se versiona).
+*.tsbuildinfo
+
+# Output compilado de tsconfig.
+out/
+
+
+# ----------------------------------------------------------------------------
+# Shell (bash / zsh)
+# ----------------------------------------------------------------------------
+# Volcados de compilación de completions de zsh (se regeneran).
+.zcompdump*
+.zcompcache/
+
+# Historial, si se mantuviese dentro del repo.
+.bash_history
+.zsh_history
+
+
+# ----------------------------------------------------------------------------
+# Artefactos de build y logs (comunes a Python / Java / Node)
+# ----------------------------------------------------------------------------
+build/
+dist/
+*.whl
+*.tgz
+*.log
+
+
+# ----------------------------------------------------------------------------
+# Entornos y secretos locales
+# ----------------------------------------------------------------------------
+# Variables de entorno locales (pueden contener credenciales). Los secretos
+# reales se gestionan con Databricks secret scopes o un secret manager de
+# cloud, NUNCA dentro del repo.
+.env
+.env.*
+!.env.example
+
+
+# ----------------------------------------------------------------------------
+# Editores / IDEs
+# ----------------------------------------------------------------------------
+.idea/
+*.iml
+.vscode/
