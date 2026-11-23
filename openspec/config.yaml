@@ -2,12 +2,29 @@ schema: spec-driven
 
 # Project context (optional)
 # Add only constraints that should guide OpenSpec artifacts and workflows.
-# Include constraints an agent cannot infer by reading the code.
-# Keep general project documentation and discoverable codebase facts out.
-# Example:
-#   context: |
-#     Designs and tasks must cover Windows, macOS, and Linux
-#     Write all artifacts in Spanish
+context: |
+  Escribe todos los artefactos en español.
+  Estándar de desarrollo obligatorio en todo el proyecto (aplica a specs,
+  designs, tasks e implementación de todos los changes):
+  - Convención de nombres: constantes NOMBRE_CONSTANTE (mayúsculas); variables
+    y objetos snake_case; clases, funciones y métodos PascalCase (pytest con
+    python_functions = Test*); SQL en mayúsculas; código y comentarios
+    detallados en español.
+  - Regla estricta: código NO hardcodeado; todo valor desde el archivo de
+    propiedades config/app_properties.json (atributo "catalogo", default
+    "control").
+  - Persistencia: solo tablas delta idempotentes en el esquema dedicado
+    control_acceso_app (creado idempotentemente), con liquid clustering,
+    change data feed, optimizeWrite y autoCompact. Prohibido Lakebase.
+  - Bitácora de eventos (con usuario que provoca el evento, identidad OBO) y
+    bitácora de errores (detalle tipo STRUCT<...>); errores vía try/except.
+  - POO como paradigma principal; PySpark preferente con funciones masivas
+    (ciclos solo cuando no haya función optimizada); integridad PK/FK y
+    referencial garantizada en el código de la aplicación.
+  - Metodología TDD (red -> green -> refactor) y suite por change: unitarias,
+    funcionales, integrales (perfil CLI andresFree; andresAzureDev solo con
+    aprobación expresa, marker azure_approval) y de aceptación, con informe
+    por change.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
