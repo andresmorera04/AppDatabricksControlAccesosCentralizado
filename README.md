@@ -114,6 +114,17 @@ Los `proposal.md` de los 10 changes ya están capturados en `openspec/changes/`.
   en casos puntuales no optimizables.
 - La integridad de llave primaria, llaves foráneas e integridad referencial se
   garantiza **desde el código de la aplicación** (Delta no las enforce).
+- **Activación del entorno Python**: las bibliotecas de Python se activan con el
+  comando `source ~/.venv/bin/activate`. Todo comando `python`, `pip` o
+  `pytest` se ejecuta con ese entorno virtual activado (Python 3.14); sin la
+  activación, los comandos caen en el Python del sistema, que no tiene las
+  dependencias del proyecto.
+- **Prohibición de instalación por la IA** (regla estricta): queda
+  terminantemente prohibido que la IA instale cualquier biblioteca, bash,
+  aplicación o binario en la Mac. Si la instalación de algo es necesaria, la IA
+  debe solicitarla al humano y justificarla a detalle (qué se instala, para qué
+  y su impacto). Solamente el humano puede aplicar la instalación, o bien dar
+  su aprobación y autorización explícita a la IA para que la realice.
 
 ## Metodología: TDD y suite de testing
 

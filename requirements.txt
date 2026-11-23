@@ -1,0 +1,18 @@
+# Dependencias del proyecto (change C1 core-domain).
+# Regla del proyecto: la IA no instala nada en la Mac sin aprobación expresa del
+# humano. Ver README.md -> "Estándar de desarrollo" -> "Prohibición de instalación
+# por la IA".
+
+# pytest: motor de la suite TDD del proyecto (red -> green -> refactor).
+# Ya presente en ~/.venv (9.2.0); se declara aquí para que el entorno sea
+# reproducible y la instalación quede documentada.
+pytest
+
+# databricks-sdk: biblioteca oficial de Databricks. En C1 solo se DECLARA (no se
+# usa: los contratos de canales usan tipos propios del dominio, ver design.md D4).
+# Se consume desde C4 (grants-uc-datos), cuando existan implementaciones reales de
+# los canales sobre un workspace.
+# Decisión del humano en C1: NO instalar ahora; la instalación se solicita en C4
+# con su aprobación y autorización explícita (regla "Prohibición de instalación
+# por la IA").
+databricks-sdk
