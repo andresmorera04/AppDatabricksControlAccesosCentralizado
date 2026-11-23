@@ -53,6 +53,15 @@ venv.bak/
 
 # Caché y resultados de herramientas de test, lint y tipado.
 .pytest_cache/
+
+# Estado local de Spark/Delta en pruebas funcionales (almacén de tablas
+# gestionadas, metastore Derby y temporales). Se genera al correr Spark local y
+# es regenerable; la fixture `sesion_spark` lo redirige a un temporal efímero,
+# pero se ignora aquí como red de seguridad para que nunca se versione.
+spark-warehouse/
+metastore_db/
+derby.log
+.spark_local_dir/
 .mypy_cache/
 .dmypy.json
 dmypy.json
