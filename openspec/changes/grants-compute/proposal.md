@@ -13,7 +13,7 @@ El cómputo es la segunda gran familia de objetos con accesos descentralizados: 
 - Implementación guiada por **TDD** (red → green → refactor): toda funcionalidad de este change comienza con una prueba que falla antes de escribir el código que la satisface.
 - Cobertura de testing: unitarias, funcionales (Permissions API simulada), integrales contra `andresFree` para lo disponible en Free Edition, y de aceptación.
 - Aplicación del **estándar de desarrollo del proyecto** (definido en README.md): código y comentarios detallados en español; constantes `NOMBRE_CONSTANTE` en mayúsculas; variables y objetos en `snake_case`; clases, funciones y métodos en `PascalCase`; instrucciones SQL en mayúsculas; POO como paradigma principal; control de errores con try/except y registro en la bitácora de errores; **código no hardcodeado (regla estricta: todo valor parametrizado o configurable)**; PySpark preferente para el procesamiento masivo. Cada cambio de ACL se registra en la bitácora de eventos con el usuario que lo provoca.
-- Las pruebas de integración de clusters clásicos requieren `andresAzureDev` (Free Edition no tiene cómputo clásico) y se marcan con `pytest.mark.azure_approval`: omitidas por defecto y ejecutadas solo con aprobación expresa del usuario. Se incluye un spike para verificar disponibilidad del feature serverless en Free Edition.
+- Las pruebas de integración de clusters clásicos requieren `andresAzureDev` (Free Edition no tiene cómputo clásico) y se marcan con `pytest.mark.azure_approval`: excluidas por defecto de la suite (`-m "not azure_approval"`) y ejecutables explícitamente (`-m azure_approval`). **Autorización vigente (decisión del humano):** se aprueban de antemano las pruebas en Azure que sean estrictamente necesarias e imposibles en Free Edition —por ejemplo, permisos sobre cómputo clásico, que exige Databricks Enterprise—; todo lo demás se prueba en `andresFree`, que sigue siendo el entorno primario. Se incluye un spike para verificar disponibilidad del feature serverless en Free Edition.
 
 ## Capabilities
 
@@ -29,4 +29,4 @@ El cómputo es la segunda gran familia de objetos con accesos descentralizados: 
 
 - Nuevo código: adaptador del canal SDK/REST para Permissions API, soporte de los tipos de objeto de cómputo.
 - Depende de: `core-domain` (C1), `persistencia-bitacora` (C2), `auth-caller-obo` (C3) y `grants-batch` (C5).
-- Uso del workspace `andresAzureDev` solo con aprobación expresa del usuario (decisión D5).
+- Uso del workspace `andresAzureDev` limitado al mínimo necesario y pre-aprobado por el humano (decisión D5 actualizada); todo lo posible se prueba en `andresFree`.

@@ -57,7 +57,7 @@ El corazón del dominio es la **matriz de compatibilidad privilegio x tipo de ob
 | D2 | Identidad | **On-behalf-of** (OAuth del usuario): la app actúa con los privilegios del llamante |
 | D3 | Serverless | Gestionado vía *serverless compute objects* (Permissions API, `CAN_USE`/`CAN_MANAGE`). La activación del feature es **manual** y está fuera de la app |
 | D4 | PAT | Token Permissions API (`authorization/tokens`, `CAN_USE`) |
-| D5 | Workspaces de prueba | Primario: **`andresFree`** (Free Edition, perfil CLI). Backup: **`andresAzureDev`** (Azure + Unity Catalog + Premium, cómputo híbrido) — **solo con aprobación expresa del usuario** |
+| D5 | Workspaces de prueba | Primario: **`andresFree`** (Free Edition, perfil CLI). Backup: **`andresAzureDev`** (Azure + Unity Catalog + Enterprise, cómputo híbrido) — pruebas mínimas necesarias **pre-aprobadas** por el usuario (p. ej. cómputo clásico, que exige Enterprise); todo lo posible se prueba en Free Edition |
 | D6 | Cardinalidades | 1 a 1, 1 a N, N a 1. **N a M fuera de alcance** |
 
 ## Plan de desarrollo: 10 changes OpenSpec
@@ -141,6 +141,7 @@ Los `proposal.md` de los 10 changes ya están capturados en `openspec/changes/`.
 - El control de acceso serverless aplica a notebooks, Databricks Connect, jobs y pipelines; **no** cubre DBSQL, Model Serving ni Databricks Apps (cada uno tiene su propio ACL, cubierto en C7/C8).
 - Los serverless compute objects *default* no se renombran ni eliminan; la app solo gestiona sus permisos.
 - Free Edition no dispone de cómputo clásico: esas pruebas de integración viven en `andresAzureDev` bajo aprobación.
+- **Distribución de pruebas por entorno**: `andresFree` es el entorno primario y donde corre todo lo posible; las pruebas integrales en `andresAzureDev` se limitan al mínimo necesario que Free Edition no puede cubrir (por ejemplo, permisos sobre cómputo clásico) y están **pre-aprobadas** por el humano. El marker `azure_approval` las excluye de la suite por defecto (`pytest -m "not azure_approval"`); se ejecutan explícitamente con `pytest -m azure_approval`.
 
 ## Licencia
 
