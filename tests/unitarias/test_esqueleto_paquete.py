@@ -9,6 +9,8 @@ core-domain, ver design.md D1) son importables desde la raíz del proyecto:
 - `control_accesos.canales`     -> channel-adapters (contratos)
 - `control_accesos.canales.simulados` -> channel-adapters (fakes)
 - `control_accesos.pipeline`    -> grant-pipeline
+- `control_accesos.autenticacion` -> caller-identity (change auth-caller-obo)
+- `control_accesos.resolucion`  -> caller-privilege-resolution (mismo change)
 """
 
 import importlib
@@ -29,6 +31,8 @@ def TestImportarSubpaquetesPorCapability():
         "control_accesos.canales",
         "control_accesos.canales.simulados",
         "control_accesos.pipeline",
+        "control_accesos.autenticacion",
+        "control_accesos.resolucion",
     ]
 
     for nombre_subpaquete in subpaquetes_esperados:
