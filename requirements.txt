@@ -16,3 +16,23 @@ pytest
 # con su aprobación y autorización explícita (regla "Prohibición de instalación
 # por la IA").
 databricks-sdk
+
+# Dependencias del change C2 (persistencia-bitacora).
+
+# pyspark: motor de procesamiento masivo exigido por el estándar del proyecto
+# ("PySpark al máximo"). Es la base de la capa de persistencia (escrituras
+# masivas en append, helpers de integridad con anti-joins/semi-joins) y de las
+# pruebas funcionales con Spark local (design.md D3/D8).
+# Se fija en 4.2.0 por compatibilidad con Python 3.14 del venv (primera línea
+# con soporte declarado de 3.14; la 4.0.x solo llega a 3.13) y con la
+# restricción de delta-spark (pyspark>=4.0.1,<=4.2.0).
+# Instalado en ~/.venv con aprobación y autorización explícita del humano
+# (regla "Prohibición de instalación por la IA").
+pyspark==4.2.0
+
+# delta-spark: soporte de Delta Lake para Spark local (OSS). Permite que las
+# pruebas funcionales creen y escriban tablas delta reales sin workspace, igual
+# que lo hará la aplicación en Databricks. Su restricción de pyspark fija el par
+# compatible: 4.4.1 <-> pyspark 4.2.0. Arrastra py4j como dependencia.
+# Instalado en ~/.venv con aprobación y autorización explícita del humano.
+delta-spark==4.4.1

@@ -1,6 +1,7 @@
 """Paquete raíz de la aplicación de control de accesos centralizado de Databricks.
 
-Organización por capability (ver openspec/changes/core-domain/design.md, D1):
+Organización por capability (ver openspec/changes/core-domain/design.md, D1 y
+openspec/changes/persistencia-bitacora/design.md, D1):
 
 - `dominio`: modelo de dominio (capability `grant-domain-model`).
 - `matriz`: matriz de compatibilidad privilegio x tipo de objeto (capability
@@ -9,6 +10,8 @@ Organización por capability (ver openspec/changes/core-domain/design.md, D1):
   simuladas (capability `channel-adapters`).
 - `pipeline`: orquestador y fases del flujo de otorgamiento (capability
   `grant-pipeline`).
+- `configuracion`: archivo de propiedades de la aplicación y su cargador
+  (capability `app-configuration`).
 
 Convenciones del proyecto (README.md - Estándar de desarrollo): código y
 comentarios en español; clases, funciones y métodos en PascalCase; constantes
