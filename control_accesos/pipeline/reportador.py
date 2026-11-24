@@ -16,6 +16,7 @@ from typing import Optional
 from control_accesos.dominio.enumeraciones import EstadoItem
 from control_accesos.dominio.errores import ErrorDominio
 from control_accesos.dominio.modelos import ItemGrant
+from control_accesos.resolucion.modelos import MensajePrivilegiosInsuficientes
 
 # Nombres canónicos de las marcas de trazabilidad por fase.
 TRAZABILIDAD_PLANIFICADO = "planificado"
@@ -51,12 +52,18 @@ class LineaReporte:
             de los privilegios insuficientes; None cuando no aplica.
         trazabilidad (tuple[str, ...]): fases que atravesó el ítem, con los
             nombres canónicos de las constantes de este módulo.
+        motivo_insuficiencia (MensajePrivilegiosInsuficientes | None): dato
+            estructurado del bloqueo por privilegios insuficientes del
+            llamante, con objeto, plano, privilegio requerido y faltante
+            consultables por campo (change `auth-caller-obo`). None en los
+            demás estados y en los bloqueos de la matriz de C1.
     """
 
     item: ItemGrant
     estado: EstadoItem
     detalle: Optional[str]
     trazabilidad: tuple
+    motivo_insuficiencia: Optional[MensajePrivilegiosInsuficientes] = None
 
 
 @dataclass(frozen=True)
@@ -114,12 +121,22 @@ class Reportador:
             for resultado in resultados_verificados
         }
 
+        # El bloqueo por privilegios insuficientes (change `auth-caller-obo`)
+        # llega como dato estructurado desde la clasificación de pre-flight.
+        # Se accede por getattr para tolerar clasificaciones construidas sin
+        # ese mapa (el comportamiento de C1 sigue siendo válido).
+        obtener_mensaje_bloqueo = getattr(
+            clasificacion, "mensaje_de_bloqueo", lambda item: None
+        )
+
         lineas = []
         for item in items_planificados:
             if item in bloqueados_por_item:
                 lineas.append(
                     self._LineaDeItemBloqueado(
-                        item, bloqueados_por_item[item]
+                        item,
+                        bloqueados_por_item[item],
+                        obtener_mensaje_bloqueo(item),
                     )
                 )
                 continue
@@ -138,13 +155,19 @@ class Reportador:
 
         return ReporteGrant(lineas=tuple(lineas))
 
-    def _LineaDeItemBloqueado(self, item, resultado_bloqueado):
+    def _LineaDeItemBloqueado(self, item, resultado_bloqueado, motivo_insuficiencia=None):
         """Construye la línea de reporte de un ítem bloqueado en pre-flight.
 
         Args:
             item (ItemGrant): ítem bloqueado.
             resultado_bloqueado (ResultadoItem): resultado con el motivo del
-                bloqueo (mensaje preciso de la matriz).
+                bloqueo (mensaje preciso de la matriz, o causa del bloqueo por
+                privilegios insuficientes).
+            motivo_insuficiencia (MensajePrivilegiosInsuficientes | None):
+                dato estructurado del bloqueo por privilegios del llamante,
+                para que el reporte y la interfaz consulten objeto, plano,
+                privilegio requerido y faltante por campo; None en los
+                bloqueos de la matriz de C1.
 
         Returns:
             LineaReporte: línea con el estado y motivo del bloqueo, y la
@@ -155,6 +178,7 @@ class Reportador:
             estado=resultado_bloqueado.estado,
             detalle=resultado_bloqueado.detalle,
             trazabilidad=TRAZABILIDAD_ITINERARIO_BLOQUEADO,
+            motivo_insuficiencia=motivo_insuficiencia,
         )
 
     def _LineaDeItemEjecutado(self, item, resultado):

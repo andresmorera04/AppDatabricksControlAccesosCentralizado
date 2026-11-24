@@ -52,11 +52,41 @@ class EnrutadorCanales:
         Raises:
             ErrorDominio: si el plano del objeto no tiene canal configurado.
         """
-        canal = self._canales_por_plano.get(item.objeto.plano)
+        return self.CanalParaObjeto(item.objeto)
+
+    def CanalParaObjeto(self, objeto):
+        """Devuelve el canal que corresponde al plano de un objeto.
+
+        Existe para los consumidores que operan sobre el objeto sin tener un
+        ítem completo: la resolución de privilegios efectivos del llamante
+        (`caller-privilege-resolution`) consulta los otorgamientos vigentes del
+        objetivo antes de que exista ítem clasificado alguno. Reutiliza el
+        mismo mapa declarativo `Plano -> canal` que la ejecución y la
+        verificación, de modo que nunca se bifurca el criterio de selección
+        (spec `grant-pipeline` - "Selección de canal por plano del objeto").
+
+        Args:
+            objeto (ObjetoSecurable): objeto cuyo plano decide el canal.
+
+        Returns:
+            Canal: canal del plano del objeto (datos o control).
+
+        Raises:
+            ErrorDominio: si el objeto no es un `ObjetoSecurable` o si su
+                plano no tiene canal configurado.
+        """
+        plano = getattr(objeto, "plano", None)
+        if plano is None:
+            raise ErrorDominio(
+                "El enrutamiento por plano requiere un ObjetoSecurable; se "
+                f"recibió {type(objeto).__name__}."
+            )
+
+        canal = self._canales_por_plano.get(plano)
         if canal is None:
             raise ErrorDominio(
-                f"El plano {item.objeto.plano.value} del objeto "
-                f"'{item.objeto.identificador}' no tiene canal de ejecución "
+                f"El plano {plano.value} del objeto "
+                f"'{objeto.identificador}' no tiene canal de ejecución "
                 "configurado."
             )
         return canal

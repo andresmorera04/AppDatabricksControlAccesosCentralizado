@@ -19,7 +19,7 @@ La aplicación debe actuar con los privilegios del usuario que la usa (decisión
 
 ### New Capabilities
 
-- `caller-identity`: Autenticación on-behalf-of del usuario llamante y resolución de su identidad (usuario, grupos, service principals asociados) dentro de la Databricks App.
+- `caller-identity`: Autenticación on-behalf-of del usuario llamante y resolución de su identidad dentro de la Databricks App. La identidad resuelta es un principal de la enumeración del dominio (usuario, grupo o service principal — este último identificado por su App Id) junto con los grupos de los que es miembro.
 - `caller-privilege-resolution`: Resolución de los privilegios efectivos del llamante sobre objetos de ambos planos y división (split) de una solicitud de grant en ítems ejecutables e ítems bloqueados con mensajes de privilegios insuficientes.
 
 ### Modified Capabilities
