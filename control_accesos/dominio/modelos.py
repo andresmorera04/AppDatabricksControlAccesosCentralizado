@@ -1,10 +1,10 @@
 """Modelos (dataclasses) del dominio de grants (capability `grant-domain-model`).
 
 Este módulo crecerá a lo largo del change con las entidades del dominio
-(`Principal`, `ObjetoSecurable`, `SolicitudGrant`, `ItemGrant`,
-`ResultadoItem`). Todas son dataclasses inmutables con validación en su
-constructor, y todo error se lanza como `ErrorDominio` con mensaje explícito
-en español (ver design.md D2 y el spec `grant-domain-model`).
+(`Principal`, `ObjetoSecurable`, `SolicitudGrant`, `SolicitudLoteGrant`,
+`ItemGrant`, `ResultadoItem`). Todas son dataclasses inmutables con validación
+en su constructor, y todo error se lanza como `ErrorDominio` con mensaje
+explícito en español (ver design.md D2 y el spec `grant-domain-model`).
 """
 
 from dataclasses import dataclass
@@ -344,6 +344,156 @@ class ItemGrant:
 
 
 @dataclass(frozen=True)
+class SolicitudLoteGrant:
+    """Solicitud de otorgamiento por lote con cardinalidad 1 a N o N a 1.
+
+    Esta dataclass acepta lotes con uno o más principals y uno o más objetos,
+    validando la forma en el constructor (spec `batch-grant-operations` -
+    "Validación de la solicitud por lote"): conjuntos vacíos se rechazan con
+    error explícito por conjunto, y la cardinalidad N a M (varios principals y
+    varios objetos a la vez) se rechaza con mensaje de fuera de alcance
+    (decisión D6 del proyecto).
+
+    El método `NormalizarAItems()` produce la lista de ítems atómicos
+    (`ItemGrant`) recorriendo el eje múltiple en orden de entrada
+    (spec - "Normalización de lotes a ítems atómicos"):
+
+    - 1 a N: los objetos en su orden de entrada y, dentro de cada uno, los
+      privilegios en su orden de entrada.
+    - N a 1: los principals en su orden de entrada y, dentro de cada uno, los
+      privilegios en su orden de entrada.
+
+    La solicitud 1 a 1 (`SolicitudGrant`) no cambia de forma: el lote es
+    aditivo y se expresa como una sola solicitud que se normaliza a ítems
+    (design.md D1).
+
+    Attributes:
+        principales (tuple[Principal, ...]): principals del lote, en el orden
+            recibido; al menos uno.
+        privilegios (tuple[str, ...]): privilegios en forma canónica
+            (mayúsculas), en el orden recibido; al menos uno.
+        objetos (tuple[ObjetoSecurable, ...]): objetos del lote, en el orden
+            recibido; al menos uno.
+
+    Raises:
+        ErrorDominio: si los conjuntos están vacíos o si la cardinalidad es N a M.
+    """
+
+    principales: tuple
+    privilegios: tuple
+    objetos: tuple
+
+    def __post_init__(self):
+        """Valida la forma del lote al construirlo.
+
+        Convierte las colecciones recibidas a tuplas inmutables, valida que
+        ningún conjunto esté vacío y rechaza la cardinalidad N a M antes de
+        cualquier normalización o ejecución.
+
+        Raises:
+            ErrorDominio: si la lista de principales, privilegios u objetos
+                está vacía, o si la cardinalidad es N a M (varios principals y
+                varios objetos a la vez).
+        """
+        lista_principales = list(self.principales)
+        lista_privilegios = list(self.privilegios)
+        lista_objetos = list(self.objetos)
+
+        # Validación de conjuntos vacíos (spec: error explícito por conjunto).
+        if not lista_principales:
+            raise ErrorDominio(
+                "La solicitud por lote requiere al menos un principal; "
+                "se recibió una lista de principales vacía."
+            )
+        if not lista_objetos:
+            raise ErrorDominio(
+                "La solicitud por lote requiere al menos un objeto; "
+                "se recibió una lista de objetos vacía."
+            )
+        if not lista_privilegios:
+            raise ErrorDominio(
+                "La solicitud por lote requiere al menos un privilegio; "
+                "se recibió una lista de privilegios vacía."
+            )
+
+        # Cardinalidad N a M: fuera de alcance en esta versión (decisión D6).
+        varios_principales = len(lista_principales) > 1
+        varios_objetos = len(lista_objetos) > 1
+        if varios_principales and varios_objetos:
+            raise ErrorDominio(
+                "La cardinalidad N a M (varios principals y varios objetos a "
+                "la vez) está fuera de alcance en esta versión. Procese las "
+                "cardinalidades 1 a N y N a 1 por separado "
+                "(change grants-batch, C5)."
+            )
+
+        # Normalizar las colecciones a tuplas inmutables y los privilegios a
+        # su forma canónica (mayúsculas). La dataclass es inmutable (frozen):
+        # se normaliza con object.__setattr__ dentro del constructor.
+        object.__setattr__(self, "principales", tuple(lista_principales))
+        object.__setattr__(self, "objetos", tuple(lista_objetos))
+        object.__setattr__(
+            self,
+            "privilegios",
+            tuple(
+                NormalizarPrivilegio(privilegio, posicion)
+                for posicion, privilegio in enumerate(lista_privilegios)
+            ),
+        )
+
+    def NormalizarAItems(self):
+        """Produce los ítems atómicos del lote en orden de entrada determinístico.
+
+        Recorre el eje múltiple (objetos en 1 a N; principals en N a 1) en su
+        orden de entrada y, dentro de cada uno, los privilegios en su orden de
+        entrada (spec `batch-grant-operations` - "Normalización de lotes a
+        ítems atómicos"). El lote degenerado (1 principal, 1 objeto) produce
+        los mismos ítems que la solicitud 1 a 1 equivalente.
+
+        Returns:
+            list[ItemGrant]: ítems atómicos en orden determinístico.
+        """
+        if len(self.principales) == 1:
+            # Cardinalidad 1 a N: el eje múltiple son los objetos.
+            return [
+                ItemGrant(
+                    principal=self.principales[0],
+                    privilegio=privilegio,
+                    objeto=objeto,
+                )
+                for objeto in self.objetos
+                for privilegio in self.privilegios
+            ]
+
+        if len(self.objetos) == 1:
+            # Cardinalidad N a 1: el eje múltiple son los principals.
+            return [
+                ItemGrant(
+                    principal=principal,
+                    privilegio=privilegio,
+                    objeto=self.objetos[0],
+                )
+                for principal in self.principales
+                for privilegio in self.privilegios
+            ]
+
+        # El constructor ya rechazó N a M y los conjuntos vacíos; este punto
+        # solo se alcanza con 1 a 1 (un principal y un objeto), que el primer
+        # ramo cubre. Se deja explícito para que la lógica nunca dependa de un
+        # supuesto no validado.
+        return [
+            ItemGrant(
+                principal=principal,
+                privilegio=privilegio,
+                objeto=objeto,
+            )
+            for principal in self.principales
+            for objeto in self.objetos
+            for privilegio in self.privilegios
+        ]
+
+
+@dataclass(frozen=True)
 class SolicitudGrant:
     """Solicitud de otorgamiento de privilegios con cardinalidad 1 a 1.
 
@@ -468,13 +618,13 @@ class SolicitudGrant:
             )
 
         # Cardinalidades 1 a N y N a 1: se procesan en C5 (grants-batch) como
-        # varias solicitudes 1 a 1, no como una sola solicitud.
+        # un lote normalizado a ítems atómicos, no como varias solicitudes 1 a 1.
         if varios_principales or varios_objetos:
             raise ErrorDominio(
                 "La cardinalidad de una solicitud de grant es 1 a 1 (un "
                 "principal, uno o más privilegios, un objeto). Las "
-                "cardinalidades 1 a N y N a 1 se procesan como varias "
-                "solicitudes 1 a 1 independientes (change grants-batch, C5)."
+                "cardinalidades 1 a N y N a 1 se procesan como lotes mediante "
+                "SolicitudLoteGrant (change grants-batch, C5)."
             )
 
         return cls.Crear(
