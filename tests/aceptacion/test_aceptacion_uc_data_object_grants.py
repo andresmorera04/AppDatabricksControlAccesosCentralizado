@@ -32,8 +32,11 @@ Trazabilidad 1:1 con los escenarios del spec delta
   - Ítem sin privilegio efectivo del llamante
     -> TestEscenarioItemSinPrivilegioEfectivoDelLlamante
   - Fallo puntual no aborta la solicitud -> TestEscenarioFalloPuntualNoAborta
-- Objetos fuera del alcance de este change:
-  - External location aún no soportada -> TestEscenarioExternalLocationNoSoportada
+- Objetos fuera del alcance de este change (requisito modificado por el change
+  `grants-uc-externos`, C6: el canal SQL soporta los diez tipos del plano de
+  datos y solo el plano de control queda fuera):
+  - External location y connection soportadas por el canal SQL
+    -> TestEscenarioExternalLocationYConnectionSoportadas
   - Objeto del plano de control fuera del canal
     -> TestEscenarioObjetoDeControlFueraDelCanal
 - Pruebas integrales autocontenidas sobre andresFree:
@@ -600,21 +603,24 @@ def TestEscenarioFalloPuntualNoAborta():
 # --- Objetos fuera del alcance de este change -------------------------------
 
 
-def TestEscenarioExternalLocationNoSoportada():
-    """Escenario: External location aún no soportada.
+def TestEscenarioExternalLocationYConnectionSoportadas():
+    """Escenario: External location y connection soportadas por el canal SQL.
+
+    Requisito modificado por el change `grants-uc-externos` (C6):
 
     WHEN llega al canal un ítem sobre una external location o una connection
-    THEN se rechaza con error controlado y no se construye instrucción alguna.
+    THEN se procesa con la palabra clave SQL de su tipo, sin rechazo.
     """
-    for tipo, nombre in (
-        (TipoObjeto.EXTERNAL_LOCATION, "ruta_externa"),
-        (TipoObjeto.CONNECTION, "conexion_lakehouse"),
-    ):
+    casos = (
+        (TipoObjeto.EXTERNAL_LOCATION, "ruta_externa", "EXTERNAL LOCATION"),
+        (TipoObjeto.CONNECTION, "conexion_lakehouse", "CONNECTION"),
+    )
+    for tipo, nombre, palabra_clave in casos:
         objeto = ObjetoSecurable(identificador=nombre, tipo=tipo)
-        with pytest.raises(ErrorCanal):
-            CanalSqlDatos.ConstruirSentenciaOtorgamiento(
-                CrearItem("SELECT", objeto=objeto)
-            )
+        sentencia = CanalSqlDatos.ConstruirSentenciaOtorgamiento(
+            CrearItem("ALL PRIVILEGES", objeto=objeto)
+        )
+        assert f"ON {palabra_clave} `{nombre}`" in sentencia
 
 
 def TestEscenarioObjetoDeControlFueraDelCanal():

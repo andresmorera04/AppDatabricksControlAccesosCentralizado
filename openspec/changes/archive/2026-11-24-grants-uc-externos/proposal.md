@@ -22,7 +22,7 @@ Las external locations y las connections de Unity Catalog gobiernan el acceso a 
 
 ### Modified Capabilities
 
-- (ninguna)
+- `uc-data-object-grants`: se elimina el requisito "Objetos fuera del alcance de este change" (acotado al alcance de C4, que declaraba external location y connection como "aún no soportadas"), con migración hacia el requisito "Cobertura completa del plano de datos" de la nueva capability `uc-external-object-grants`: el canal SQL soporta los diez tipos del plano de datos y solo los objetos del plano de control quedan fuera de este canal.
 
 ## Impact
 

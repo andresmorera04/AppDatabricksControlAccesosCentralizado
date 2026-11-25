@@ -1,12 +1,16 @@
 """Pruebas funcionales del canal SQL real integrado en el pipeline.
 
 Cubren el requirement "Vertical slice de punta a punta con el canal SQL real"
-del spec `uc-data-object-grants`, usando `CanalSqlDatos` (producción) sobre una
-sesión SQL que imita las respuestas reales del motor de Unity Catalog: filas de
-`SHOW GRANT` con otorgatario textual y errores con los códigos reales
-(`SCHEMA_OR_OBJECT_NOT_FOUND`, `PERMISSION_DENIED`). No hay conexión externa.
+del spec `uc-data-object-grants` y los requirements del spec
+`uc-external-object-grants` (C6) sobre external locations y connections, usando
+`CanalSqlDatos` (producción) sobre una sesión SQL que imita las respuestas reales
+del motor de Unity Catalog: filas de `SHOW GRANT` con otorgatario textual y
+errores con los códigos reales (`SCHEMA_OR_OBJECT_NOT_FOUND`,
+`EXTERNAL_LOCATION_NOT_FOUND`, `CONNECTION_NOT_FOUND`, `PERMISSION_DENIED`). No
+hay conexión externa.
 
-Se ejercitan los cuatro caminos del flujo:
+Se ejercitan los cuatro caminos del flujo, para los objetos de C4 y para los
+objetos externos de C6:
 
 - solicitud 1 a 1 válida otorgada y verificada de punta a punta;
 - ítem incompatible con la matriz bloqueado en pre-flight sin tocar la sesión;
@@ -281,3 +285,238 @@ def TestFalloPuntualNoAbortaElResto():
     assert estados["SELECT"] is EstadoItem.OTORGADO
     assert estados["MODIFY"] is EstadoItem.FALLIDO
     assert "no existe" in reporte.lineas[1].detalle
+
+
+# --- Objetos externos (spec `uc-external-object-grants`, C6) ----------------
+
+# External location de prueba: nombre simple (sin calificación por catálogo),
+# como las reporta Unity Catalog.
+EXTERNAL_LOCATION = ObjetoSecurable(
+    identificador="ubicacion_externa_pruebas", tipo=TipoObjeto.EXTERNAL_LOCATION
+)
+
+# Connection de Unity Catalog de prueba (Lakehouse Federation).
+CONNECTION = ObjetoSecurable(
+    identificador="conexion_sqlserver_pruebas", tipo=TipoObjeto.CONNECTION
+)
+
+
+def FilaExterna(objeto, principal, privilegio):
+    """Construye una fila de SHOW GRANT del propio objeto externo consultado.
+
+    Usa la palabra clave SQL real del tipo (`EXTERNAL LOCATION`, con sus dos
+    tokens, o `CONNECTION`) y la clave del objeto, tal como las reporta el
+    metastore.
+
+    Args:
+        objeto (ObjetoSecurable): objeto externo consultado.
+        principal (str): otorgatario referenciado por la fila.
+        privilegio (str): privilegio vigente.
+
+    Returns:
+        list[str]: fila con las columnas Principal, ActionType, ObjectType,
+            ObjectKey.
+    """
+    palabra = CanalSqlDatos.ConstruirShowGrant(objeto).split(" ON ")[1].split(" `")[0]
+    return [principal, privilegio, palabra, objeto.identificador]
+
+
+def CrearSolicitudExterna(objeto, privilegios):
+    """Construye una solicitud 1 a 1 sobre un objeto externo de prueba.
+
+    Args:
+        objeto (ObjetoSecurable): external location o connection.
+        privilegios (list[str]): privilegios a otorgar al beneficiario.
+
+    Returns:
+        SolicitudGrant: solicitud válida para procesar.
+    """
+    return SolicitudGrant.Crear(
+        principal=Principal(
+            identificador=BENEFICIARIO, tipo=TipoPrincipal.USUARIO
+        ),
+        privilegios=list(privilegios),
+        objeto=objeto,
+    )
+
+
+def TestSolicitudSobreExternalLocationOtorgadaYVerificada():
+    """Una solicitud 1 a 1 sobre external location se otorga y verifica.
+
+    Escenarios "Grant sobre una external location" y "Grant confirmado por la
+    verificación" del spec `uc-external-object-grants`.
+    """
+    sesion = SesionSqlWorkspaceImitada()
+    sesion.ConfigurarShowGrant(
+        EXTERNAL_LOCATION,
+        [
+            FilaExterna(EXTERNAL_LOCATION, BENEFICIARIO, "READ FILES"),
+            FilaExterna(EXTERNAL_LOCATION, BENEFICIARIO, "WRITE FILES"),
+        ],
+    )
+    pipeline = PipelineGrants(
+        canal_datos=CanalSqlDatos(sesion),
+        canal_control=CanalControlSimulado(),
+    )
+
+    reporte = pipeline.Procesar(
+        CrearSolicitudExterna(EXTERNAL_LOCATION, ["READ FILES", "WRITE FILES"])
+    )
+
+    assert len(reporte.lineas) == 2
+    assert all(linea.estado is EstadoItem.OTORGADO for linea in reporte.lineas)
+    # Las dos instrucciones usan la palabra clave de dos tokens y se verifican
+    # con SHOW GRANT sobre la propia external location.
+    assert sesion.sentencias_ejecutadas[0] == (
+        "GRANT READ FILES ON EXTERNAL LOCATION `ubicacion_externa_pruebas` "
+        f"TO `{BENEFICIARIO}`"
+    )
+    assert any(
+        sentencia == "SHOW GRANT ON EXTERNAL LOCATION `ubicacion_externa_pruebas`"
+        for sentencia in sesion.sentencias_ejecutadas
+    )
+
+
+def TestSolicitudSobreConnectionOtorgadaYVerificada():
+    """Una solicitud 1 a 1 sobre connection se otorga y verifica de punta a punta.
+
+    Escenarios "Grant sobre una connection" y "Grant confirmado por la
+    verificación" del spec `uc-external-object-grants`.
+    """
+    sesion = SesionSqlWorkspaceImitada()
+    sesion.ConfigurarShowGrant(
+        CONNECTION,
+        [FilaExterna(CONNECTION, BENEFICIARIO, "USE CONNECTION")],
+    )
+    pipeline = PipelineGrants(
+        canal_datos=CanalSqlDatos(sesion),
+        canal_control=CanalControlSimulado(),
+    )
+
+    reporte = pipeline.Procesar(CrearSolicitudExterna(CONNECTION, ["USE CONNECTION"]))
+
+    assert reporte.lineas[0].estado is EstadoItem.OTORGADO
+    assert sesion.sentencias_ejecutadas[0] == (
+        "GRANT USE CONNECTION ON CONNECTION `conexion_sqlserver_pruebas` "
+        f"TO `{BENEFICIARIO}`"
+    )
+
+
+def TestItemIncompatibleSobreConnectionBloqueadoEnPreFlight():
+    """SELECT no es válido para una connection: se bloquea sin tocar la sesión.
+
+    Escenario "Privilegios según la matriz" del spec: la matriz de compatibilidad
+    filtra antes de cualquier ejecución.
+    """
+    sesion = SesionSqlWorkspaceImitada()
+    pipeline = PipelineGrants(
+        canal_datos=CanalSqlDatos(sesion),
+        canal_control=CanalControlSimulado(),
+    )
+
+    reporte = pipeline.Procesar(CrearSolicitudExterna(CONNECTION, ["SELECT"]))
+
+    linea = reporte.lineas[0]
+    assert linea.estado is EstadoItem.FALLIDO
+    assert "no es válido" in linea.detalle
+    assert sesion.sentencias_ejecutadas == [], (
+        "La matriz filtra antes: la sesión no recibe ninguna sentencia"
+    )
+
+
+def TestItemSinPrivilegioEfectivoSobreExternalLocationBloqueado():
+    """Sin el privilegio efectivo del llamante el ítem externo se bloquea.
+
+    Escenario del split de C3 aplicado a objetos externos: el llamante solo
+    tiene `READ FILES`, por lo que `WRITE FILES` queda bloqueado con
+    `privilegios_insuficientes` y no se ejecuta ninguna instrucción.
+    """
+    sesion = SesionSqlWorkspaceImitada()
+    sesion.ConfigurarShowGrant(
+        EXTERNAL_LOCATION,
+        [FilaExterna(EXTERNAL_LOCATION, IDENTIFICADOR_USUARIO_DEMO, "READ FILES")],
+    )
+    canal_datos = CanalSqlDatos(sesion)
+    pipeline = PipelineGrants(
+        canal_datos=canal_datos,
+        canal_control=CanalControlSimulado(),
+        identidad_llamante=IdentidadUsuario(),
+        resolutor_privilegios=ResolutorPrivilegiosEfectivos(
+            canal_datos=canal_datos,
+            canal_control=CanalControlSimulado(),
+        ),
+    )
+
+    reporte = pipeline.Procesar(
+        CrearSolicitudExterna(EXTERNAL_LOCATION, ["WRITE FILES"])
+    )
+
+    linea = reporte.lineas[0]
+    assert linea.estado is EstadoItem.PRIVILEGIOS_INSUFICIENTES
+    assert sesion.SentenciasDeEscritura() == [], (
+        "El bloqueo por privilegios no debe enviar ninguna instrucción GRANT"
+    )
+    assert sesion.sentencias_ejecutadas[0] == (
+        "SHOW GRANT ON EXTERNAL LOCATION `ubicacion_externa_pruebas`"
+    )
+
+
+def TestPermisoDenegadoSobreExternalLocationNoAbortaElResto():
+    """Un fallo puntual sobre un objeto externo no cancela los demás ítems.
+
+    Escenario "Permiso denegado al otorgar" combinado con el fallo puntual: el
+    motor responde `PERMISSION_DENIED` para `WRITE FILES` y `READ FILES` se
+    otorga y se verifica con normalidad.
+    """
+    sesion = SesionSqlWorkspaceImitada()
+    sesion.ConfigurarShowGrant(
+        EXTERNAL_LOCATION,
+        [FilaExterna(EXTERNAL_LOCATION, BENEFICIARIO, "READ FILES")],
+    )
+    sesion.ConfigurarErrorEn(
+        "GRANT WRITE FILES",
+        ErrorMotorSql(
+            "[PERMISSION_DENIED] El ejecutor no puede otorgar WRITE FILES."
+        ),
+    )
+    pipeline = PipelineGrants(
+        canal_datos=CanalSqlDatos(sesion),
+        canal_control=CanalControlSimulado(),
+    )
+
+    reporte = pipeline.Procesar(
+        CrearSolicitudExterna(EXTERNAL_LOCATION, ["READ FILES", "WRITE FILES"])
+    )
+
+    estados = {linea.item.privilegio: linea.estado for linea in reporte.lineas}
+    assert estados["READ FILES"] is EstadoItem.OTORGADO
+    assert estados["WRITE FILES"] is EstadoItem.PRIVILEGIOS_INSUFICIENTES
+    assert "ubicacion_externa_pruebas" in reporte.lineas[1].detalle
+
+
+def TestConnectionInexistenteSeReportaFallida():
+    """Una connection inexistente se reporta fallida con su mensaje específico.
+
+    Escenario "External location o connection inexistente" del spec, con el
+    código real `CONNECTION_NOT_FOUND` imitado por la sesión simulada.
+    """
+    sesion = SesionSqlWorkspaceImitada()
+    sesion.ConfigurarErrorEn(
+        "GRANT USE CONNECTION",
+        ErrorMotorSql(
+            "[CONNECTION_NOT_FOUND] No existe la connection "
+            "'conexion_sqlserver_pruebas'."
+        ),
+    )
+    pipeline = PipelineGrants(
+        canal_datos=CanalSqlDatos(sesion),
+        canal_control=CanalControlSimulado(),
+    )
+
+    reporte = pipeline.Procesar(CrearSolicitudExterna(CONNECTION, ["USE CONNECTION"]))
+
+    linea = reporte.lineas[0]
+    assert linea.estado is EstadoItem.FALLIDO
+    assert "no existe" in linea.detalle
+    assert "connection" in linea.detalle
+    assert "conexion_sqlserver_pruebas" in linea.detalle

@@ -1,10 +1,12 @@
-"""Canal SQL real del plano de datos (capability `uc-data-object-grants`).
+"""Canal SQL real del plano de datos (capabilities `uc-data-object-grants` y
+`uc-external-object-grants`).
 
 Implementación de producción del contrato `CanalDatos` para otorgar y revocar
-privilegios sobre los objetos del plano de datos de Unity Catalog (catálogo,
-esquema, tabla delta, streaming table, vista materializada, vista SQL, volumen
-y modelo ML) mediante instrucciones SQL `GRANT`/`REVOKE`, y para consultar los
-grants vigentes con `SHOW GRANT` (verificación posterior al otorgamiento).
+privilegios sobre los diez objetos del plano de datos de Unity Catalog (catálogo,
+esquema, tabla delta, streaming table, vista materializada, vista SQL, volumen,
+modelo ML, external location y connection) mediante instrucciones SQL
+`GRANT`/`REVOKE`, y para consultar los grants vigentes con `SHOW GRANT`
+(verificación posterior al otorgamiento).
 
 El canal consume una sesión SQL inyectada (design D2): en producción la del
 entorno de la Databricks App (adaptada por `SesionSparkSql`); en las pruebas
@@ -12,10 +14,11 @@ integrales el transporte por CLI ya existente; en las pruebas unitarias y
 funcionales una sesión simulada. Ningún valor de conexión vive en el código
 (regla "código NO hardcodeado"): la sesión es la única ruta hacia el workspace.
 
-El mapeo de palabra clave SQL por tipo de objeto es un dato declarativo,
-acotado a los ocho tipos de este change (design D1): un tipo fuera de alcance
-se rechaza con `ErrorCanal` explícito (spec - "Objetos fuera del alcance de
-este change").
+El mapeo de palabra clave SQL por tipo de objeto es un dato declarativo con los
+diez tipos del plano de datos (design D1 de `grants-uc-datos` y design D1 de
+`grants-uc-externos`): un tipo del plano de control, cuya vía de autorización es
+la Permissions API (changes `grants-compute`/`grants-apps-tokens`), se rechaza
+con `ErrorCanal` explícito (spec - "Cobertura completa del plano de datos").
 
 La construcción de sentencias se expone como métodos estáticos para que las
 pruebas unitarias la verifiquen sin sesión alguna; la ejecución y la traducción
@@ -39,10 +42,13 @@ from control_accesos.dominio.modelos import ItemGrant, ObjetoSecurable, Principa
 MODULO_BITACORA_ERRORES = "canal_sql"
 
 # Mapa declarativo de palabra clave SQL por tipo de objeto del plano de datos,
-# acotado a los ocho tipos de este change. No se incluyen external location ni
-# connection (change `grants-uc-externos`, C6): un tipo ajeno al mapa se rechaza
-# con error controlado (design D1). La palabra clave es el literal que envía la
-# instrucción SQL (en mayúsculas, estándar del proyecto).
+# con los diez tipos soportados: los ocho de `grants-uc-datos` (C4) más external
+# location y connection, incorporados por `grants-uc-externos` (C6, design D1).
+# La palabra clave `EXTERNAL LOCATION` tiene dos tokens (a diferencia de las
+# demás) y es el literal que envía la instrucción SQL (en mayúsculas, estándar
+# del proyecto). Un tipo ajeno al mapa —es decir, del plano de control, cuya
+# vía de autorización es la Permissions API (C7/C8)— se rechaza con error
+# controlado.
 PALABRA_CLAVE_SQL_POR_TIPO_OBJETO = {
     TipoObjeto.CATALOGO: "CATALOG",
     TipoObjeto.ESQUEMA: "SCHEMA",
@@ -52,6 +58,8 @@ PALABRA_CLAVE_SQL_POR_TIPO_OBJETO = {
     TipoObjeto.VISTA_SQL: "TABLE",
     TipoObjeto.VOLUMEN: "VOLUME",
     TipoObjeto.MODELO_ML: "MODEL",
+    TipoObjeto.EXTERNAL_LOCATION: "EXTERNAL LOCATION",
+    TipoObjeto.CONNECTION: "CONNECTION",
 }
 
 # Plantillas de las instrucciones SQL, completamente en mayúsculas (estándar).
@@ -81,6 +89,24 @@ PATRONES_OBJETO_INEXISTENTE = (
     re.compile(r"VOLUME_NOT_FOUND", re.IGNORECASE),
     re.compile(r"MODEL_NOT_FOUND", re.IGNORECASE),
     re.compile(r"OBJECT_NOT_FOUND", re.IGNORECASE),
+    # Códigos de los objetos externos incorporados por `grants-uc-externos`
+    # (C6, design D3). Los dos primeros son las formas sugeridas y aprobadas por
+    # el humano antes del contraste; se conservan como cobertura defensiva de
+    # otras superficies. Los tres siguientes son los códigos REALES observados
+    # contra los workspaces de pruebas:
+    # - external location inexistente en `andresAzureDev`:
+    #   `ErrorClass=EXTERNAL_LOCATION_DOES_NOT_EXIST.RESOURCE_DOES_NOT_EXIST`
+    #   ("External Location '<nombre>' does not exist.");
+    # - connection inexistente en `andresFree`:
+    #   `ErrorClass=RESOURCE_DOES_NOT_EXIST.RESOURCE_DOES_NOT_EXIST`
+    #   ("Connection '<nombre>' does not exist.").
+    # `CONNECTION_DOES_NOT_EXIST` se declara por simetría con la location, aunque
+    # el motor no lo reportó en la corrida de contraste.
+    re.compile(r"EXTERNAL_LOCATION_NOT_FOUND", re.IGNORECASE),
+    re.compile(r"CONNECTION_NOT_FOUND", re.IGNORECASE),
+    re.compile(r"EXTERNAL_LOCATION_DOES_NOT_EXIST", re.IGNORECASE),
+    re.compile(r"CONNECTION_DOES_NOT_EXIST", re.IGNORECASE),
+    re.compile(r"RESOURCE_DOES_NOT_EXIST", re.IGNORECASE),
 )
 
 PATRONES_PRINCIPAL_INEXISTENTE = (
@@ -125,7 +151,8 @@ class CanalSqlDatos(CanalDatos):
     """Canal SQL real para otorgar y revocar privilegios de Unity Catalog.
 
     Construye y ejecuta instrucciones GRANT/REVOKE (y consulta SHOW GRANT) para
-    los ocho tipos del plano de datos soportados en este change, a través de
+    los diez tipos del plano de datos de Unity Catalog, incluidos external
+    location y connection (change `grants-uc-externos`, C6), a través de
     una sesión SQL inyectada. No contiene configuración de conexión alguna.
 
     Attributes:
@@ -319,6 +346,14 @@ class CanalSqlDatos(CanalDatos):
         palabra clave que su tipo e igual clave), se conserva el tipo consultado;
         si describe un contenedor padre (`CATALOG`/`SCHEMA`), se mapea al tipo
         contenedor; en cualquier otro caso devuelve None (sin inventar objeto).
+
+        La comparación de la palabra clave es textual y no la divide por tokens,
+        por lo que cubre igual las palabras de un token (`TABLE`, `CONNECTION`) y
+        la de dos tokens de los objetos externos incorporados por
+        `grants-uc-externos` (C6): `EXTERNAL LOCATION`. El contenedor padre de un
+        objeto externo (`METASTORE`) no tiene tipo gestionado por la app y no
+        está en el mapa de contenedores, de modo que su fila se omite sin
+        inventar objeto.
 
         Args:
             objeto (ObjetoSecurable): objeto consultado.
@@ -517,16 +552,20 @@ def _PalabraClaveSql(tipo):
         tipo (TipoObjeto): tipo del objeto securable.
 
     Returns:
-        str: palabra clave SQL en mayúsculas del tipo.
+        str: palabra clave SQL en mayúsculas del tipo (`EXTERNAL LOCATION` para
+            external location, con sus dos tokens).
 
     Raises:
-        ErrorCanal: si el tipo no pertenece a los ocho soportados por este canal.
+        ErrorCanal: si el tipo pertenece al plano de control, no soportado por
+            este canal SQL (su vía de autorización es la Permissions API,
+            changes `grants-compute`/`grants-apps-tokens`).
     """
     palabra_clave = PALABRA_CLAVE_SQL_POR_TIPO_OBJETO.get(tipo)
     if palabra_clave is None:
         raise ErrorCanal(
-            f"El tipo de objeto '{tipo.value}' no está soportado por el "
-            "canal SQL del plano de datos (change grants-uc-datos)."
+            f"El tipo de objeto '{tipo.value}' pertenece al plano de control y "
+            "no está soportado por el canal SQL del plano de datos (change "
+            "grants-uc-externos)."
         )
     return palabra_clave
 

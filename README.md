@@ -125,6 +125,17 @@ Los `proposal.md` de los 10 changes ya están capturados en `openspec/changes/`.
   debe solicitarla al humano y justificarla a detalle (qué se instala, para qué
   y su impacto). Solamente el humano puede aplicar la instalación, o bien dar
   su aprobación y autorización explícita a la IA para que la realice.
+- **Secretos y datos de entorno de pruebas (regla estricta)**: ninguna
+  credencial se versiona. Los datos sensibles que requiera una prueba (p. ej. el
+  SQL Server de pruebas de la fixture de connection de C6) se leen de
+  **variables de entorno** con prefijo `CONTROL_ACCESOS_`; la plantilla sin
+  secretos está en `.env.example` (versionada) y el archivo local `.env` queda
+  gitignoreado. Si faltan las variables, la fixture no se crea y la prueba se
+  **salta con el motivo documentado**, nunca falla. Además, todo texto de error
+  que se registre o se publique en informes debe **redactar** los valores
+  sensibles antes de guardarse: el motor SQL devuelve los fallos de DDL con la
+  sentencia completa, y esos textos acaban en el motivo del skip y en los JUnit
+  XML de `results/`, que sí se versionan.
 
 ## Metodología: TDD y suite de testing
 
@@ -142,6 +153,7 @@ Los `proposal.md` de los 10 changes ya están capturados en `openspec/changes/`.
 - Los serverless compute objects *default* no se renombran ni eliminan; la app solo gestiona sus permisos.
 - Free Edition no dispone de cómputo clásico: esas pruebas de integración viven en `andresAzureDev` bajo aprobación.
 - **Distribución de pruebas por entorno**: `andresFree` es el entorno primario y donde corre todo lo posible; las pruebas integrales en `andresAzureDev` se limitan al mínimo necesario que Free Edition no puede cubrir (por ejemplo, permisos sobre cómputo clásico) y están **pre-aprobadas** por el humano. El marker `azure_approval` las excluye de la suite por defecto (`pytest -m "not azure_approval"`); se ejecutan explícitamente con `pytest -m azure_approval`.
+- **Fixtures integrales de objetos externos (C6)**: la external location se crea contra `andresAzureDev` descubriendo por API el storage credential y la cuenta del workspace (nada hardcodeado) sobre el contenedor de pruebas `test`; la connection se crea contra `andresFree` con los datos del SQL Server de pruebas tomados de variables de entorno (`CONTROL_ACCESOS_SQLSERVER_*`, ver `.env.example`). Sin esas variables exportadas, las integrales de connection se saltan con motivo documentado y el resto de la suite sigue en verde.
 
 ## Licencia
 

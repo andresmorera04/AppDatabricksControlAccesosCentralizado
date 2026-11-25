@@ -1,12 +1,15 @@
 """Pruebas unitarias de la lectura de grants vigentes vía SHOW GRANT.
 
 Cubren el requirement "Verificación posterior al grant con SHOW GRANTS" del spec
-`uc-data-object-grants`: `ListarGrantsVigentes` construye `SHOW GRANT ON
+`uc-data-object-grants` y el requirement homónimo del spec
+`uc-external-object-grants` (C6): `ListarGrantsVigentes` construye `SHOW GRANT ON
 <palabra clave> <identificador>` y traduce cada fila a un otorgamiento con la
 regla fila propia / fila padre (design D4) — la fila del objeto consultado
-conserva su tipo; la de un contenedor padre se mapea a `CATALOGO`/`ESQUEMA`; una
-palabra no mapeable se omite sin inventar objeto; un objeto sin grants devuelve
-lista vacía distinguible de un fallo.
+conserva su tipo (incluida la palabra clave de dos tokens `EXTERNAL LOCATION`);
+la de un contenedor padre se mapea a `CATALOGO`/`ESQUEMA`; una palabra no
+mapeable (p. ej. el contenedor `METASTORE` de un objeto externo) se omite sin
+inventar objeto; un objeto sin grants devuelve lista vacía distinguible de un
+fallo.
 """
 
 from control_accesos.canales.reales.canal_sql_datos import CanalSqlDatos
@@ -124,6 +127,112 @@ def TestObjetoSinGrantsDevuelveListaVacia():
     sesion = SesionDoble(filas=[])
     canal = CanalSqlDatos(sesion)
     objeto = CrearObjeto(TipoObjeto.TABLA_DELTA, "control.finanzas.ventas")
+
+    grants = canal.ListarGrantsVigentes(objeto)
+
+    assert grants == []
+
+
+# --- Objetos externos (spec `uc-external-object-grants`, C6) ----------------
+
+
+def TestConstruyeShowGrantSobreExternalLocation():
+    """La consulta de una external location usa la palabra de dos tokens."""
+    sesion = SesionDoble()
+    canal = CanalSqlDatos(sesion)
+    objeto = CrearObjeto(TipoObjeto.EXTERNAL_LOCATION, "ubicacion_externa")
+
+    canal.ListarGrantsVigentes(objeto)
+
+    assert sesion.sentencias_ejecutadas == [
+        "SHOW GRANT ON EXTERNAL LOCATION `ubicacion_externa`"
+    ]
+
+
+def TestConstruyeShowGrantSobreConnection():
+    """La consulta de una connection usa la palabra clave CONNECTION."""
+    sesion = SesionDoble()
+    canal = CanalSqlDatos(sesion)
+    objeto = CrearObjeto(TipoObjeto.CONNECTION, "conexion_lakehouse")
+
+    canal.ListarGrantsVigentes(objeto)
+
+    assert sesion.sentencias_ejecutadas == [
+        "SHOW GRANT ON CONNECTION `conexion_lakehouse`"
+    ]
+
+
+def TestFilaPropiaDeExternalLocationConservaElTipo():
+    """La fila de dos tokens EXTERNAL LOCATION conserva el tipo consultado.
+
+    Spec - "Filas propias conservan el tipo consultado": la normalización de la
+    palabra clave de la fila no debe partir ni colapsar los dos tokens.
+    """
+    sesion = SesionDoble(
+        filas=[
+            ["usuario@correo.com", "READ FILES", "EXTERNAL LOCATION",
+             "ubicacion_externa"],
+        ]
+    )
+    canal = CanalSqlDatos(sesion)
+    objeto = CrearObjeto(TipoObjeto.EXTERNAL_LOCATION, "ubicacion_externa")
+
+    grants = canal.ListarGrantsVigentes(objeto)
+
+    assert len(grants) == 1
+    assert grants[0].objeto.tipo is TipoObjeto.EXTERNAL_LOCATION
+    assert grants[0].objeto.identificador == "ubicacion_externa"
+    assert grants[0].privilegio == "READ FILES"
+    assert grants[0].principal.identificador == "usuario@correo.com"
+
+
+def TestFilaPropiaDeConnectionConservaElTipo():
+    """La fila de una connection conserva el tipo consultado `connection`."""
+    sesion = SesionDoble(
+        filas=[
+            ["grupo_analistas", "USE CONNECTION", "CONNECTION",
+             "conexion_lakehouse"],
+        ]
+    )
+    canal = CanalSqlDatos(sesion)
+    objeto = CrearObjeto(TipoObjeto.CONNECTION, "conexion_lakehouse")
+
+    grants = canal.ListarGrantsVigentes(objeto)
+
+    assert len(grants) == 1
+    assert grants[0].objeto.tipo is TipoObjeto.CONNECTION
+    assert grants[0].privilegio == "USE CONNECTION"
+    assert grants[0].principal.tipo is TipoPrincipal.GRUPO
+
+
+def TestFilaDeMetastoreSeOmiteEnObjetosExternos():
+    """El contenedor metastore de un objeto externo no tiene tipo del dominio.
+
+    Design D4: la fila del contenedor padre (`METASTORE`) no es mapeable a
+    ningún tipo gestionado por la app y se omite sin inventar objeto, dejando
+    visible solo la fila propia de la external location.
+    """
+    sesion = SesionDoble(
+        filas=[
+            ["usuario@correo.com", "READ FILES", "EXTERNAL LOCATION",
+             "ubicacion_externa"],
+            ["propietario", "OWN", "METASTORE", "metastore_root"],
+        ]
+    )
+    canal = CanalSqlDatos(sesion)
+    objeto = CrearObjeto(TipoObjeto.EXTERNAL_LOCATION, "ubicacion_externa")
+
+    grants = canal.ListarGrantsVigentes(objeto)
+
+    assert len(grants) == 1
+    assert grants[0].objeto.tipo is TipoObjeto.EXTERNAL_LOCATION
+
+
+def TestObjetoExternoSinGrantsDevuelveListaVacia():
+    """Una external location sin otorgamientos devuelve lista vacía."""
+    sesion = SesionDoble(filas=[])
+    canal = CanalSqlDatos(sesion)
+    objeto = CrearObjeto(TipoObjeto.EXTERNAL_LOCATION, "ubicacion_externa")
 
     grants = canal.ListarGrantsVigentes(objeto)
 

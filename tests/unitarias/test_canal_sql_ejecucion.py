@@ -1,10 +1,12 @@
 """Pruebas unitarias de la ejecución del canal SQL por sesión inyectada.
 
 Cubren el requirement "Ejecución de instrucciones por una sesión SQL inyectada"
-del spec `uc-data-object-grants`: el canal ejecuta la instrucción construida a
+del spec `uc-data-object-grants` y el requirement homónimo del spec
+`uc-external-object-grants` (C6): el canal ejecuta la instrucción construida a
 través del puerto `sql(sentencia)` de la sesión inyectada, sin valores de
 conexión en el código, y devuelve un resultado por ítem sin propagar
-excepciones. Se incluye la normalización de filas del adaptador `SesionSparkSql`.
+excepciones, tanto para los ocho tipos de C4 como para external location y
+connection. Se incluye la normalización de filas del adaptador `SesionSparkSql`.
 """
 
 from control_accesos.canales.reales.canal_sql_datos import (
@@ -92,6 +94,26 @@ def CrearItem():
     )
 
 
+def CrearItemExterno(tipo, identificador, privilegio):
+    """Construye un ítem sobre un objeto externo (C6) para las pruebas.
+
+    Args:
+        tipo (TipoObjeto): `EXTERNAL_LOCATION` o `CONNECTION`.
+        identificador (str): nombre simple del objeto externo.
+        privilegio (str): privilegio a otorgar o revocar.
+
+    Returns:
+        ItemGrant: ítem con un principal usuario fijo de las pruebas.
+    """
+    return ItemGrant(
+        principal=Principal(
+            identificador="usuario_demo", tipo=TipoPrincipal.USUARIO
+        ),
+        privilegio=privilegio,
+        objeto=ObjetoSecurable(identificador=identificador, tipo=tipo),
+    )
+
+
 def TestOtorgamientoEjecutaLaSentenciaEnLaSesion():
     """El otorgamiento envía la sentencia construida al puerto sql de la sesión."""
     sesion = SesionDoble()
@@ -128,6 +150,101 @@ def TestCanalSinConexionExterna():
     assert canal.Otorgar(CrearItem()).estado is EstadoItem.OTORGADO
     # El doble no abre red alguna: solo registra la sentencia recibida.
     assert len(sesion.sentencias_ejecutadas) == 1
+
+
+def TestOtorgamientoSobreExternalLocationEjecutaLaSentencia():
+    """El otorgamiento sobre external location llega tal cual a la sesión.
+
+    Spec `uc-external-object-grants` - "Instrucción enviada a la sesión
+    inyectada": la palabra clave de dos tokens `EXTERNAL LOCATION` se envía
+    completa en la instrucción.
+    """
+    sesion = SesionDoble()
+    canal = CanalSqlDatos(sesion)
+    item = CrearItemExterno(
+        TipoObjeto.EXTERNAL_LOCATION, "ubicacion_externa", "READ FILES"
+    )
+
+    resultado = canal.Otorgar(item)
+
+    assert resultado.estado is EstadoItem.OTORGADO
+    assert sesion.sentencias_ejecutadas == [
+        "GRANT READ FILES ON EXTERNAL LOCATION `ubicacion_externa` "
+        "TO `usuario_demo`"
+    ]
+
+
+def TestOtorgamientoSobreConnectionEjecutaLaSentencia():
+    """El otorgamiento sobre connection llega tal cual a la sesión inyectada."""
+    sesion = SesionDoble()
+    canal = CanalSqlDatos(sesion)
+    item = CrearItemExterno(
+        TipoObjeto.CONNECTION, "conexion_lakehouse", "USE CONNECTION"
+    )
+
+    resultado = canal.Otorgar(item)
+
+    assert resultado.estado is EstadoItem.OTORGADO
+    assert sesion.sentencias_ejecutadas == [
+        "GRANT USE CONNECTION ON CONNECTION `conexion_lakehouse` "
+        "TO `usuario_demo`"
+    ]
+
+
+def TestRevocacionSobreObjetosExternosEjecutaLaSentencia():
+    """La revocación de ambos tipos externos usa el mismo puerto de sesión."""
+    sesion = SesionDoble()
+    canal = CanalSqlDatos(sesion)
+
+    resultado_location = canal.Revocar(
+        CrearItemExterno(
+            TipoObjeto.EXTERNAL_LOCATION, "ubicacion_externa", "WRITE FILES"
+        )
+    )
+    resultado_connection = canal.Revocar(
+        CrearItemExterno(
+            TipoObjeto.CONNECTION, "conexion_lakehouse", "CREATE FOREIGN CATALOG"
+        )
+    )
+
+    assert resultado_location.estado is EstadoItem.OTORGADO
+    assert resultado_connection.estado is EstadoItem.OTORGADO
+    assert sesion.sentencias_ejecutadas == [
+        "REVOKE WRITE FILES ON EXTERNAL LOCATION `ubicacion_externa` "
+        "FROM `usuario_demo`",
+        "REVOKE CREATE FOREIGN CATALOG ON CONNECTION `conexion_lakehouse` "
+        "FROM `usuario_demo`",
+    ]
+
+
+def TestObjetosExternosSinConexionExterna():
+    """Los objetos externos se ejercitan contra la sesión doble, sin red.
+
+    Spec `uc-external-object-grants` - "Canal ejercitado sin workspace alguno":
+    con una sesión simulada el otorgamiento y la revocación se procesan y se
+    reportan sin ninguna conexión externa.
+    """
+    sesion = SesionDoble()
+    canal = CanalSqlDatos(sesion)
+
+    assert (
+        canal.Otorgar(
+            CrearItemExterno(
+                TipoObjeto.EXTERNAL_LOCATION, "ubicacion_externa", "READ FILES"
+            )
+        ).estado
+        is EstadoItem.OTORGADO
+    )
+    assert (
+        canal.Revocar(
+            CrearItemExterno(
+                TipoObjeto.CONNECTION, "conexion_lakehouse", "USE CONNECTION"
+            )
+        ).estado
+        is EstadoItem.OTORGADO
+    )
+    # Solo las dos instrucciones registradas: el doble no abre conexión alguna.
+    assert len(sesion.sentencias_ejecutadas) == 2
 
 
 def TestSesionSparkSqlNormalizaLasFilasATexto():
