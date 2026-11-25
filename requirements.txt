@@ -8,14 +8,14 @@
 # reproducible y la instalación quede documentada.
 pytest
 
-# databricks-sdk: biblioteca oficial de Databricks. En C1 solo se DECLARA (no se
-# usa: los contratos de canales usan tipos propios del dominio, ver design.md D4).
-# Se consume desde C4 (grants-uc-datos), cuando existan implementaciones reales de
-# los canales sobre un workspace.
-# Decisión del humano en C1: NO instalar ahora; la instalación se solicita en C4
-# con su aprobación y autorización explícita (regla "Prohibición de instalación
-# por la IA").
-databricks-sdk
+# databricks-sdk: biblioteca oficial de Databricks. En C1 solo se DECLARÓ (no
+# se usa: los contratos de canales usan tipos propios del dominio, ver design.md
+# D4); se consume desde C7 (grants-compute) como transporte del canal SDK/REST
+# del plano de control (Permissions API).
+# Instalada en ~/.venv en C7 con `pip install` por autorización y decisión
+# expresa del humano (regla "Prohibición de instalación por la IA"), versión
+# 0.170.0 sobre Python 3.14.10.
+databricks-sdk==0.170.0
 
 # Dependencias del change C2 (persistencia-bitacora).
 
