@@ -185,7 +185,18 @@ def TestCanalesSimuladosCumplenLosContratosAbstractos():
 
 
 def TestCanalesSimuladosNoCarganBibliotecasExternas():
-    """Los fakes no importan el SDK ni requieren conexión externa alguna."""
+    """Los fakes no importan el SDK ni requieren conexión externa alguna.
+
+    La comprobación es relativa: se toma una instantánea de los módulos ya
+    cargados y se afirma que construir y usar los canales simulados no agrega
+    bibliotecas de conexión externa (`databricks`/`requests`). No se afirma que
+    el proceso esté libre de ellas en términos absolutos: en la suite completa
+    las integrales (autorizadas por el humano, change C7) cargan `databricks-sdk`
+    en el mismo proceso, y eso es legítimo. Lo que se protege es que la
+    superficie simulada del dominio no arrastre el SDK.
+    """
+    modulos_previos = set(sys.modules)
+
     canal_datos = CanalDatosSimulado()
     canal_control = CanalControlSimulado()
     canal_datos.Otorgar(CrearItem())
@@ -197,12 +208,13 @@ def TestCanalesSimuladosNoCarganBibliotecasExternas():
         )
     )
 
-    modulos_cargados = [
+    modulos_agregados = [
         nombre
         for nombre in sys.modules
-        if nombre.startswith("databricks") or nombre.startswith("requests")
+        if (nombre.startswith("databricks") or nombre.startswith("requests"))
+        and nombre not in modulos_previos
     ]
-    assert modulos_cargados == [], (
+    assert modulos_agregados == [], (
         "Los canales simulados no deben cargar bibliotecas de conexión externa"
     )
 
