@@ -343,3 +343,45 @@ def TestEscenarioDosReferenciasAlMismoCatalogo():
     # escritura: ambas referencias resolvieron al mismo objeto securable.
     assert reporte.lineas[0].estado is EstadoItem.OTORGADO
     assert reporte.lineas[0].item.objeto.identificador == "control"
+
+
+def TestEscenarioSolicitudConCardinalidad1aN():
+    """Escenario: Solicitud con cardinalidad 1 a N.
+
+    WHEN se crea una solicitud con un principal, uno o más privilegios y varios objetos
+    THEN el sistema la acepta como solicitud por lote, lista para su normalización en ítems atómicos 1 a 1.
+    """
+    from control_accesos.dominio.modelos import SolicitudLoteGrant
+
+    principal = Principal(identificador="usuario_demo", tipo=TipoPrincipal.USUARIO)
+    privilegios = ["SELECT"]
+    objetos = [
+        ObjetoSecurable(identificador="tabla1", tipo=TipoObjeto.TABLA_DELTA),
+        ObjetoSecurable(identificador="tabla2", tipo=TipoObjeto.TABLA_DELTA),
+    ]
+    lote = SolicitudLoteGrant(
+        principales=[principal], privilegios=privilegios, objetos=objetos
+    )
+    items = lote.NormalizarAItems()
+    assert len(items) == 2
+
+
+def TestEscenarioSolicitudConCardinalidadNa1():
+    """Escenario: Solicitud con cardinalidad N a 1.
+
+    WHEN se crea una solicitud con varios principals, uno o más privilegios y un objeto
+    THEN el sistema la acepta como solicitud por lote, lista para su normalización en ítems atómicos 1 a 1.
+    """
+    from control_accesos.dominio.modelos import SolicitudLoteGrant
+
+    principales = [
+        Principal(identificador="usuario1_demo", tipo=TipoPrincipal.USUARIO),
+        Principal(identificador="usuario2_demo", tipo=TipoPrincipal.USUARIO),
+    ]
+    privilegios = ["SELECT"]
+    objeto = ObjetoSecurable(identificador="tabla1", tipo=TipoObjeto.TABLA_DELTA)
+    lote = SolicitudLoteGrant(
+        principales=principales, privilegios=privilegios, objetos=[objeto]
+    )
+    items = lote.NormalizarAItems()
+    assert len(items) == 2

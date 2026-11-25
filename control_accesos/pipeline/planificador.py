@@ -8,7 +8,11 @@ procesamiento y de reporte de todas las fases siguientes (spec
 """
 
 from control_accesos.dominio.errores import ErrorDominio
-from control_accesos.dominio.modelos import ItemGrant, SolicitudGrant
+from control_accesos.dominio.modelos import (
+    ItemGrant,
+    SolicitudGrant,
+    SolicitudLoteGrant,
+)
 
 
 class Planificador:
@@ -94,3 +98,58 @@ class Planificador:
             principales=principales, privilegios=privilegios, objetos=objetos
         )
         return self.Planificar(solicitud)
+
+    def PlanificarLote(self, solicitud_lote):
+        """Valida el lote y lo normaliza a ítems atómicos.
+
+        Es la fase de planificación del camino de lote (design.md D2): valida
+        que la entrada sea una `SolicitudLoteGrant` y delega la normalización
+        en el modelo, que produce los ítems atómicos recorriendo el eje
+        múltiple en orden de entrada (spec `batch-grant-operations` -
+        "Normalización de lotes a ítems atómicos").
+
+        Args:
+            solicitud_lote (SolicitudLoteGrant): solicitud de lote validada de
+                cardinalidad 1 a N o N a 1.
+
+        Returns:
+            list[ItemGrant]: ítems atómicos del lote en orden determinístico.
+
+        Raises:
+            ErrorDominio: si la entrada no es una `SolicitudLoteGrant`; no se
+                genera ningún ítem.
+        """
+        if not isinstance(solicitud_lote, SolicitudLoteGrant):
+            raise ErrorDominio(
+                "La fase de planificación de lote requiere una instancia de "
+                f"SolicitudLoteGrant; se recibió {type(solicitud_lote).__name__}."
+            )
+        return solicitud_lote.NormalizarAItems()
+
+    def PlanificarLoteDesdeEntradas(self, principales, privilegios, objetos):
+        """Construye el lote desde las entradas y lo normaliza a ítems.
+
+        Es el punto de entrada del pipeline para las entradas recibidas desde
+        la interfaz de usuario (change `web-ui-minimalista`, C9) en el camino
+        de lote: la construcción valida la forma del lote (conjuntos vacíos y
+        cardinalidad N a M) antes de generar ítems (spec `batch-grant-operations`
+        - "Validación de la solicitud por lote" y "Rechazo explícito de
+        cardinalidad N a M").
+
+        Args:
+            principales (list[Principal]): principals del lote.
+            privilegios (list[str]): privilegios del lote.
+            objetos (list[ObjetoSecurable]): objetos del lote.
+
+        Returns:
+            list[ItemGrant]: ítems atómicos del lote en orden determinístico.
+
+        Raises:
+            ErrorDominio: si la forma del lote es inválida (conjuntos vacíos o
+                cardinalidad N a M); no se genera ningún ítem ni se ejecuta
+                fase alguna.
+        """
+        solicitud_lote = SolicitudLoteGrant(
+            principales=principales, privilegios=privilegios, objetos=objetos
+        )
+        return self.PlanificarLote(solicitud_lote)

@@ -39,11 +39,16 @@ from control_accesos.pipeline.ejecutor import Ejecutor
 from control_accesos.pipeline.planificador import Planificador
 from control_accesos.pipeline.pre_flight import PreFlight
 from control_accesos.pipeline.reportador import Reportador
+from control_accesos.pipeline.reporte_lote import AgregadorReporteLote
 from control_accesos.pipeline.verificador import Verificador
 
 # Acción canónica con la que el pipeline deja constancia de su actividad en la
 # bitácora de eventos (spec `audit-logging` del change `persistencia-bitacora`).
 ACCION_PROCESAR_SOLICITUD = "procesar_solicitud_grant"
+
+# Acción canónica del camino de lote (change `grants-batch`, C5): se registra
+# un evento por ítem y un evento consolidado del lote (design.md D4).
+ACCION_PROCESAR_LOTE = "procesar_lote_grant"
 
 # Módulo que se declara en la bitácora de errores cuando el registro del evento
 # falla (mismo criterio que los módulos de autenticación y resolución).
@@ -72,6 +77,7 @@ class PipelineGrants:
         resolutor_privilegios=None,
         registrador_eventos=None,
         registrador_errores=None,
+        sesion_spark=None,
     ):
         """Inicializa el pipeline con sus dependencias inyectadas.
 
@@ -97,6 +103,9 @@ class PipelineGrants:
             registrador_errores (BitacoraErrores | None): escritor de la
                 bitácora de errores, usado solo si el registro del evento
                 falla. Si es None, el fallo se informa por salida de error.
+            sesion_spark (SparkSession | None): sesión Spark para la agregación
+                masiva del reporte de lote (design.md D3). Obligatoria en el
+                camino de lote; el camino 1 a 1 no la requiere.
 
         Raises:
             ErrorDominio: si alguno de los canales no implementa el contrato
@@ -121,6 +130,14 @@ class PipelineGrants:
         self._identidad_llamante = identidad_llamante
         self._registrador_eventos = registrador_eventos
         self._registrador_errores = registrador_errores
+
+        # Agregador del reporte de lote (design.md D3): solo se usa en el
+        # camino de lote; el camino 1 a 1 no lo requiere.
+        self._agregador_lote = (
+            AgregadorReporteLote(sesion=sesion_spark)
+            if sesion_spark is not None
+            else None
+        )
 
     def Procesar(self, solicitud, identidad_llamante=None):
         """Procesa una solicitud de grant de punta a punta.
@@ -172,7 +189,105 @@ class PipelineGrants:
         )
         return self._ProcesarItems(items_planificados, identidad_llamante)
 
-    def _ProcesarItems(self, items_planificados, identidad_llamante=None):
+    def ProcesarLote(self, solicitud_lote, identidad_llamante=None):
+        """Procesa una solicitud de lote de grant de punta a punta.
+
+        Es el punto de entrada del camino de lote (design.md D2): valida la
+        solicitud, la normaliza a ítems atómicos y ejecuta el mismo flujo de
+        fases `_ProcesarItems` de C1 (pre-flight con split por ítem → ejecución
+        ítem a ítem por canal del plano → verificación → reporte por ítem).
+        Un fallo puntual nunca aborta el resto del lote (spec
+        `batch-grant-operations` - "Resultados parciales por ítem").
+
+        Si se inyectó una sesión Spark al construir el pipeline, el reporte se
+        agrega con funciones masivas de PySpark y se devuelve un
+        `ReporteLoteGrant` con `total_items` y `totales_por_estado` (design.md
+        D3). Sin sesión, se devuelve el `ReporteGrant` base (retrocompatible).
+
+        Args:
+            solicitud_lote (SolicitudLoteGrant): solicitud de lote validada de
+                cardinalidad 1 a N o N a 1.
+            identidad_llamante (IdentidadLlamante | None): identidad del
+                llamante para esta invocación; si es None se usa la inyectada
+                al construir el pipeline.
+
+        Returns:
+            ReporteLoteGrant | ReporteGrant: reporte consolidado del lote.
+
+        Raises:
+            ErrorDominio: si la entrada no es una `SolicitudLoteGrant`; no se
+                ejecuta ninguna fase.
+        """
+        items_planificados = self._planificador.PlanificarLote(solicitud_lote)
+        identidad_efectiva = self._IdentidadEfectiva(identidad_llamante)
+        reporte = self._ProcesarItems(
+            items_planificados, identidad_llamante, accion=ACCION_PROCESAR_LOTE,
+            registrar_consolidado=False
+        )
+        # Registrar eventos por ítem primero, luego el consolidado (design.md D4).
+        self._RegistrarEventosPorItem(reporte, identidad_efectiva)
+        self._RegistrarEvento(reporte, identidad_efectiva, accion=ACCION_PROCESAR_LOTE)
+        return self._AgregarReporteLote(reporte)
+
+    def ProcesarLoteDesdeEntradas(
+        self, principales, privilegios, objetos, identidad_llamante=None
+    ):
+        """Construye el lote desde las entradas y lo procesa.
+
+        Es el camino que usará la interfaz de usuario (change
+        `web-ui-minimalista`, C9) para el modo por lote: recibe las entradas
+        del formulario, construye la solicitud de lote validando su forma
+        (conjuntos vacíos y cardinalidad N a M) y ejecuta el flujo completo.
+
+        Si se inyectó una sesión Spark al construir el pipeline, el reporte se
+        agrega con funciones masivas de PySpark y se devuelve un
+        `ReporteLoteGrant` con `total_items` y `totales_por_estado` (design.md
+        D3). Sin sesión, se devuelve el `ReporteGrant` base (retrocompatible).
+
+        Args:
+            principales (list[Principal]): principals del lote.
+            privilegios (list[str]): privilegios del lote.
+            objetos (list[ObjetoSecurable]): objetos del lote.
+            identidad_llamante (IdentidadLlamante | None): identidad del
+                llamante para esta invocación; si es None se usa la inyectada
+                al construir el pipeline.
+
+        Returns:
+            ReporteLoteGrant | ReporteGrant: reporte consolidado del lote.
+
+        Raises:
+            ErrorDominio: si la forma del lote es inválida (por ejemplo,
+                cardinalidad N a M o conjuntos vacíos); no se genera ningún
+                ítem ni se ejecuta fase alguna.
+        """
+        items_planificados = self._planificador.PlanificarLoteDesdeEntradas(
+            principales=principales, privilegios=privilegios, objetos=objetos
+        )
+        identidad_efectiva = self._IdentidadEfectiva(identidad_llamante)
+        reporte = self._ProcesarItems(
+            items_planificados, identidad_llamante, accion=ACCION_PROCESAR_LOTE,
+            registrar_consolidado=False
+        )
+        # Registrar eventos por ítem primero, luego el consolidado (design.md D4).
+        self._RegistrarEventosPorItem(reporte, identidad_efectiva)
+        self._RegistrarEvento(reporte, identidad_efectiva, accion=ACCION_PROCESAR_LOTE)
+        return self._AgregarReporteLote(reporte)
+
+    def _AgregarReporteLote(self, reporte):
+        """Agrega el reporte de lote si hay sesión Spark inyectada.
+
+        Args:
+            reporte (ReporteGrant): reporte base con las líneas por ítem.
+
+        Returns:
+            ReporteLoteGrant | ReporteGrant: el reporte agregado si hay sesión,
+                o el reporte base si no (retrocompatible).
+        """
+        if self._agregador_lote is None:
+            return reporte
+        return self._agregador_lote.Agregar(reporte)
+
+    def _ProcesarItems(self, items_planificados, identidad_llamante=None, accion=None, registrar_consolidado=True):
         """Ejecuta las fases pre-flight -> ejecutar -> verificar -> reporte.
 
         Args:
@@ -180,6 +295,12 @@ class PipelineGrants:
                 de planificación.
             identidad_llamante (IdentidadLlamante | None): identidad del
                 llamante para esta invocación.
+            accion (str | None): acción canónica para el evento consolidado de
+                bitácora. Si es None, se usa `ACCION_PROCESAR_SOLICITUD`
+                (camino 1 a 1); el camino de lote pasa `ACCION_PROCESAR_LOTE`.
+            registrar_consolidado (bool): si True, registra el evento
+                consolidado al final (camino 1 a 1); si False, no lo registra
+                (camino de lote, que registra per-item + consolidado manualmente).
 
         Returns:
             ReporteGrant: reporte consolidado de la ejecución.
@@ -206,7 +327,9 @@ class PipelineGrants:
 
         # La auditoría va después del resultado: un fallo de la bitácora no
         # puede dejar a la solicitud sin reporte.
-        self._RegistrarEvento(reporte, identidad_efectiva)
+        if registrar_consolidado:
+            accion_efectiva = accion if accion is not None else ACCION_PROCESAR_SOLICITUD
+            self._RegistrarEvento(reporte, identidad_efectiva, accion=accion_efectiva)
 
         return reporte
 
@@ -229,7 +352,7 @@ class PipelineGrants:
             return identidad_llamante
         return self._identidad_llamante
 
-    def _RegistrarEvento(self, reporte, identidad_llamante):
+    def _RegistrarEvento(self, reporte, identidad_llamante, accion=None):
         """Deja constancia de la solicitud procesada en la bitácora de eventos.
 
         El campo `usuario` se alimenta con la identidad on-behalf-of resuelta y
@@ -241,6 +364,43 @@ class PipelineGrants:
             reporte (ReporteGrant): resultado consolidado de la solicitud.
             identidad_llamante (IdentidadLlamante | None): identidad que
                 provocó el evento.
+            accion (str | None): acción canónica del evento. Si es None, se usa
+                `ACCION_PROCESAR_SOLICITUD` (camino 1 a 1).
+        """
+        if self._registrador_eventos is None:
+            return
+
+        usuario = (
+            identidad_llamante.usuario_bitacora
+            if identidad_llamante is not None
+            else None
+        )
+        accion_efectiva = accion if accion is not None else ACCION_PROCESAR_SOLICITUD
+
+        try:
+            self._registrador_eventos.Registrar(
+                accion=accion_efectiva,
+                usuario=usuario,
+                detalle=self._DetalleEvento(reporte),
+                resultado=self._ResultadoEvento(reporte),
+            )
+        except Exception as excepcion:  # noqa: BLE001
+            # La bitácora nunca es un punto de fallo en cascada: se captura,
+            # se deja constancia y el reporte ya calculado se devuelve igual.
+            self._RegistrarFalloDeAuditoria(excepcion, usuario)
+
+    def _RegistrarEventosPorItem(self, reporte, identidad_llamante):
+        """Registra un evento por ítem del lote en la bitácora de eventos.
+
+        Es el registro por ítem del camino de lote (design.md D4): cada ítem
+        produce un evento con la acción canónica `ACCION_PROCESAR_LOTE`, el
+        usuario OBO (o None sin identidad), el detalle con principal,
+        privilegio, objeto y estado final, y el resultado derivado del estado.
+
+        Args:
+            reporte (ReporteGrant): reporte con las líneas por ítem.
+            identidad_llamante (IdentidadLlamante | None): identidad que
+                provocó los eventos.
         """
         if self._registrador_eventos is None:
             return
@@ -251,17 +411,33 @@ class PipelineGrants:
             else None
         )
 
-        try:
-            self._registrador_eventos.Registrar(
-                accion=ACCION_PROCESAR_SOLICITUD,
-                usuario=usuario,
-                detalle=self._DetalleEvento(reporte),
-                resultado=self._ResultadoEvento(reporte),
-            )
-        except Exception as excepcion:  # noqa: BLE001
-            # La bitácora nunca es un punto de fallo en cascada: se captura,
-            # se deja constancia y el reporte ya calculado se devuelve igual.
-            self._RegistrarFalloDeAuditoria(excepcion, usuario)
+        for linea in reporte.lineas:
+            try:
+                self._registrador_eventos.Registrar(
+                    accion=ACCION_PROCESAR_LOTE,
+                    usuario=usuario,
+                    detalle=self._DetalleEventoPorItem(linea),
+                    resultado=linea.estado.value,
+                )
+            except Exception as excepcion:  # noqa: BLE001
+                # Degradación controlada: el fallo de un evento por ítem no
+                # aborta los demás ni el reporte ya calculado.
+                self._RegistrarFalloDeAuditoria(excepcion, usuario)
+
+    def _DetalleEventoPorItem(self, linea):
+        """Construye el detalle del evento por ítem.
+
+        Args:
+            linea (LineaReporte): línea del reporte con el ítem y su estado.
+
+        Returns:
+            str: texto con principal, privilegio, objeto y estado final.
+        """
+        item = linea.item
+        return (
+            f"{item.principal.identificador} - {item.privilegio} - "
+            f"{item.objeto.identificador} - {linea.estado.value}"
+        )
 
     def _DetalleEvento(self, reporte):
         """Construye el detalle del evento con el desglose de estados por ítem.
