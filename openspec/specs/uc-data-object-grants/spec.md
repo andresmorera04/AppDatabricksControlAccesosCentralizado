@@ -130,20 +130,6 @@ El pipeline SHALL procesar una solicitud 1 a 1 de punta a punta con el canal SQL
 - **WHEN** de varios ítems ejecutables uno falla durante la ejecución real
 - **THEN** los demás ítems se ejecutan y se reportan, y el fallo del primero queda en su resultado por ítem sin cancelar el resto
 
-### Requirement: Objetos fuera del alcance de este change
-
-El canal SQL de este change SHALL soportar únicamente los ocho tipos del plano de datos declarados (catálogo, esquema, tabla delta, streaming table, vista materializada, vista SQL, volumen y modelo ML). Un ítem sobre cualquier otro tipo que llegue al canal SHALL reportarse como `fallido` controlado con un mensaje explícito de tipo no soportado, sin ejecutar instrucción alguna.
-
-#### Scenario: External location aún no soportada
-
-- **WHEN** llega al canal SQL un ítem sobre una external location o una connection de Unity Catalog
-- **THEN** el ítem se reporta `fallido` con el mensaje explícito de tipo no soportado por este canal y no se ejecuta ninguna instrucción SQL
-
-#### Scenario: Objeto del plano de control fuera de este canal
-
-- **WHEN** llega al canal SQL un ítem cuyo objeto pertenece al plano de control
-- **THEN** el ítem se reporta `fallido` con el mensaje explícito de tipo no soportado por este canal y no se ejecuta ninguna instrucción SQL
-
 ### Requirement: Pruebas integrales autocontenidas sobre andresFree
 
 Las pruebas integrales de este change SHALL ejecutar grants reales únicamente contra el workspace primario `andresFree`, creando y destruyendo sus propias fixtures (catálogo, esquema y objetos de cada tipo soportado) y revocando lo otorgado, de modo que ninguna prueba deje estado residual en el workspace.
