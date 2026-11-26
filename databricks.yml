@@ -1,0 +1,56 @@
+# Databricks Asset Bundle de soporte al despliegue del spike OBO (C9, tarea 2.4).
+#
+# Propósito: vehículo de SUBIDA del bundle desplegable a WSFS. El comando
+# `databricks fs cp` del CLI v1.27 no soporta rutas /Workspace/... (solo DBFS,
+# UC Volumes y UC Skills con esquema dbfs:/), y `databricks workspace
+# import-dir` convertiría los .py en notebooks sin extensión, rompiendo la App.
+# `databricks bundle sync` sube ficheros arbitrarios preservando nombres y
+# extensiones, que es lo que la Databricks App necesita como código fuente.
+#
+# La App (autorización de usuario, scopes, recursos) se crea/configura
+# manualmente con el CLI de Apps, como prescribe design.md D4; este archivo NO
+# despliega recursos: solo sincroniza ficheros con `databricks bundle sync`.
+#
+# sync.exclude deja fuera todo lo que no es el bundle desplegable (entrada,
+# manifiesto, runtime, configuración y paquete de producción): tests/,
+# openspec/, results/, cachés y metadatos del repositorio NO viajan al
+# workspace.
+
+bundle:
+  name: control-accesos-spike
+
+sync:
+  # Patrones gitignore de exclusión: todo lo que NO es el bundle desplegable
+  # (entrada app.py, manifiesto app.yaml, requirements.txt, config/ y
+  # control_accesos/) queda fuera de la subida. `include` actúa como lista
+  # blanca aditiva en este CLI (v1.27), no como filtro restrictivo: por eso
+  # el conjunto se define por exclusión.
+  exclude:
+    - tests/**
+    - openspec/**
+    - results/**
+    - docs/**
+    - "**/__pycache__/**"
+    - "**/.DS_Store"
+    - "*.md"
+    - pytest.ini
+    - requirements-dev.txt
+    - conftest.py
+    - LICENSE
+    - .env
+    - .env.*
+    - .gitignore
+    - databricks.yml
+
+targets:
+  dev:
+    default: true
+    workspace:
+      # Perfil CLI del workspace primario de pruebas (README D5), igual que en
+      # la capa integral (PERFIL_CLI_INTEGRAL).
+      profile: andresFree
+      # Destino WSFS del código fuente del spike. El usuario se interpola del
+      # contexto del workspace autenticado (regla No HardCoded: sin correos ni
+      # hosts escritos a mano); debe coincidir con --source-code-path del
+      # comando `databricks apps create/deploy` del runbook del gate.
+      file_path: /Workspace/Users/${workspace.current_user.userName}/spike-control-accesos

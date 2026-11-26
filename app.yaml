@@ -1,0 +1,31 @@
+# Manifiesto de la Databricks App (C9 `web-ui-minimalista`, design.md D1).
+#
+# Esquema oficial (documentación "Configure app execution"):
+# - command: secuencia que sustituye el arranque por defecto de la plataforma
+#   (`python <primer .py>`); la plataforma NO la ejecuta en un shell, por lo
+#   que Streamlit requiere este comando explícito.
+# - env: lista de variables de entorno no sensibles (name/value). Los secretos
+#   y las referencias a recursos (valueFrom/resources) se declararán cuando el
+#   gate OBO de la tarea 2.4 valide el cableado de Databricks Connect.
+# - health_check: endpoint que la plataforma consulta antes de marcar el
+#   despliegue como exitoso; usa la ruta de salud real del servidor Streamlit
+#   (ROUTE_HEALTH = "_stcore/health"), con la barra inicial que exige el
+#   manifiesto.
+#
+# Regla No HardCoded / seguridad (design.md D4/D11): este archivo no incrusta
+# el host del workspace (lo inyecta la plataforma en la variable de entorno
+# cuyo nombre declara config/app_properties.json), ni tokens (el header OBO
+# llega por request), ni secretos, ni ids de recurso.
+
+command: ["streamlit", "run", "app.py"]
+
+env:
+  # Telemetría de uso de Streamlit desactivada: una aplicación interna de
+  # gobierno de accesos no envía métricas de uso a terceros (variable del
+  # ejemplo oficial de manifiesto para apps Streamlit).
+  - name: "STREAMLIT_GATHER_USAGE_STATS"
+    value: "false"
+
+health_check:
+  path: "/_stcore/health"
+  timeout_seconds: 60
