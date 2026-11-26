@@ -63,6 +63,7 @@ from control_accesos.ui.proveedor_identidad_app import (
     LeerHostWorkspace,
     LeerTokenObo,
     ProveedorIdentidadDatabricksApp,
+    TIPO_AUTENTICACION_PAT_OBO,
 )
 
 # Identificador del módulo para trazas, mensajes y bitácora de errores
@@ -104,7 +105,13 @@ def CrearSesionSparkObo(host, token):
     from databricks.connect import DatabricksSession
     from databricks.sdk.config import Config
 
-    configuracion_sdk = Config(host=host, token=token)
+    # auth_type='pat': el entorno de la App ya trae OAuth del service
+    # principal propio; sin fijarlo, Config mezcla oauth+pat y el SDK lanza
+    # ValueError('more than one authorization method configured') —fallo real
+    # del spike D4—. Con 'pat' solo se usa el token OBO del llamante.
+    configuracion_sdk = Config(
+        host=host, token=token, auth_type=TIPO_AUTENTICACION_PAT_OBO
+    )
     return (
         DatabricksSession.builder.sdkConfig(configuracion_sdk)
         .serverless(True)

@@ -188,6 +188,29 @@ def TestConfigNoHeredaCredencialesDelEntornoDeLaApp(monkeypatch):
     assert str(configuracion.host).rstrip("/") == HOST_WORKSPACE.rstrip("/")
 
 
+def TestConfigFijaAuthTypePatParaEvitarConflictoOAuth(monkeypatch):
+    """Config de Connect con auth_type='pat' (fallo real del spike 2.4).
+
+    El entorno de la App aporta OAuth del service principal propio; sin
+    auth_type explícito, Config(host, token) mezcla oauth+pat y el SDK lanza
+    ValueError('more than one authorization method configured'). Con 'pat'
+    solo se usa el token OBO del llamante.
+    """
+    _LimpiarEntornoSdk(monkeypatch)
+    _InstalarConfigSdkFalso(monkeypatch)
+    constructor = ConstructorSesionFalso()
+    _InstalarConnectFalso(monkeypatch, constructor)
+
+    CrearSesionSparkObo(host=HOST_WORKSPACE, token=TOKEN_OBO)
+
+    configuracion = constructor.configuracion_recibida
+    assert configuracion.extra.get("auth_type") == "pat", (
+        "El Config de Databricks Connect debe fijar auth_type='pat' para que "
+        "el token OBO no se mezcle con el OAuth del service principal de la "
+        "App presente en el entorno (fallo detectado por el spike D4)."
+    )
+
+
 def TestImportarLaFabricaNoCargaDatabricksConnect():
     """La importación de Connect es perezosa (D5: prohibida en ~/.venv)."""
     codigo = (

@@ -37,6 +37,7 @@ from control_accesos.autenticacion.servicio import ServicioIdentidadLlamante
 from control_accesos.configuracion.configuracion_app import ConfiguracionApp
 from control_accesos.dominio.enumeraciones import TipoPrincipal
 from control_accesos.ui.proveedor_identidad_app import (
+    CrearClienteWorkspace,
     ProveedorIdentidadDatabricksApp,
 )
 
@@ -350,6 +351,38 @@ def TestNombresDeEncabezadoYVariableSonConfigurables():
 
     assert contexto.identificador == USUARIO_DE_PRUEBA
     assert fabrica.llamadas == [(HOST_WORKSPACE_DE_PRUEBA, TOKEN_OBO_DE_PRUEBA)]
+
+
+def TestFabricaClienteProduccionFijaAuthTypePat(monkeypatch):
+    """CrearClienteWorkspace fija auth_type='pat' (spike 2.4: oauth+pat).
+
+    En el runtime de la Databricks App el entorno ya trae credenciales OAuth
+    del service principal propio; si el constructor no fija el método, el SDK
+    rechaza la combinación ('more than one authorization method configured:
+    oauth and pat') o, peor, podría preferir el OAuth de la App. Con
+    auth_type='pat' solo se usa el token OBO del llamante (design.md D3).
+    """
+    import databricks.sdk
+
+    llamadas = []
+
+    class WorkspaceClientFalso:
+        def __init__(self, **kwargs):
+            llamadas.append(kwargs)
+
+    monkeypatch.setattr(databricks.sdk, "WorkspaceClient", WorkspaceClientFalso)
+
+    CrearClienteWorkspace(
+        host=HOST_WORKSPACE_DE_PRUEBA, token=TOKEN_OBO_DE_PRUEBA
+    )
+
+    assert llamadas == [
+        {
+            "host": HOST_WORKSPACE_DE_PRUEBA,
+            "token": TOKEN_OBO_DE_PRUEBA,
+            "auth_type": "pat",
+        }
+    ]
 
 
 def TestIntegracionConServicioIdentidadLlamante():

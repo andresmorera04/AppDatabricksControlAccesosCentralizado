@@ -52,6 +52,16 @@ ATRIBUTO_VARIABLE_ENTORNO_HOST = "variable_entorno_host_workspace"
 # reales y de la bitácora).
 MODULO_PROVEEDOR_IDENTIDAD_APP = "ui.proveedor_identidad_app"
 
+# Método de autenticación fijado explícitamente para la credencial OBO.
+# El token del header `x-forwarded-access-token` se usa como bearer token
+# (PAT). En el runtime de la Databricks App el entorno YA trae credenciales
+# OAuth del service principal propio: sin este valor, el SDK rechaza la
+# combinación con ValueError('more than one authorization method configured:
+# oauth and pat') —fallo real detectado por el spike D4 (tarea 2.4)— o podría
+# llegar a preferir el OAuth de la App. Con auth_type='pat' solo se usa el
+# token OBO del llamante (design.md D3: sin herencia de credenciales).
+TIPO_AUTENTICACION_PAT_OBO = "pat"
+
 
 def AccederEncabezadosStreamlit():
     """Acceso de producción a los headers del request actual de Streamlit.
@@ -78,7 +88,9 @@ def CrearClienteWorkspace(host, token):
     Construcción explícita con host y token del llamante: NUNCA se deja que
     el SDK autoconfigure las credenciales del entorno de la App, porque
     entonces las operaciones saldrían con el service principal de la App y se
-    rompería el modelo on-behalf-of (design.md D3).
+    rompería el modelo on-behalf-of (design.md D3). `auth_type='pat'` fija el
+    bearer token OBO como único método y evita el conflicto oauth+pat con las
+    credenciales OAuth del entorno de la App (spike D4).
 
     Args:
         host (str): URL del workspace (variable de entorno de la plataforma).
@@ -89,7 +101,9 @@ def CrearClienteWorkspace(host, token):
     """
     from databricks.sdk import WorkspaceClient
 
-    return WorkspaceClient(host=host, token=token)
+    return WorkspaceClient(
+        host=host, token=token, auth_type=TIPO_AUTENTICACION_PAT_OBO
+    )
 
 
 def _TextoONulo(valor):
