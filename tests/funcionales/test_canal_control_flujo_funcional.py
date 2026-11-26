@@ -167,16 +167,18 @@ def TestItemSinPrivilegioEfectivoBloqueado():
     )
 
 
-@pytest.mark.parametrize("tipo_objeto", [TipoObjeto.DATABRICK_APP, TipoObjeto.USO_TOKEN])
-def TestTipoFueraDeAlcanceRechazadoSinLlamada(tipo_objeto):
-    """Un tipo ajeno al cómputo (app o token de C8) se rechaza sin llamada."""
+@pytest.mark.parametrize("tipo_objeto", [TipoObjeto.TABLA_DELTA, TipoObjeto.ESQUEMA])
+def TestTipoPlanoDeDatosSeResuelvePorCanalDeDatosSinLlamadaAControl(tipo_objeto):
+    """Un tipo del plano de datos se resuelve por el canal de datos; el canal
+    de control no recibe llamada alguna (design D1, extensión de C8)."""
     objeto = ObjetoSecurable(identificador="fuera-de-alcance", tipo=tipo_objeto)
     transporte = TransportePermisosControlFalso()
     pipeline, _ = CrearPipeline(transporte)
 
-    reporte = pipeline.Procesar(CrearSolicitud(objeto, ["CAN_USE"]))
+    reporte = pipeline.Procesar(CrearSolicitud(objeto, ["SELECT"]))
 
     linea = reporte.lineas[0]
-    assert linea.estado is EstadoItem.FALLIDO
-    assert "no pertenece al plano de control" in linea.detalle
+    # El canal de datos simulado acepta SELECT; lo importante es que el
+    # canal de control NO recibe llamada.
+    assert linea.estado is EstadoItem.OTORGADO
     assert transporte.lecturas == [] and transporte.escrituras == []

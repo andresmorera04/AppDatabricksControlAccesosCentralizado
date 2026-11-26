@@ -1,5 +1,6 @@
-"""Adaptador del puerto de permisos del canal de cómputo sobre `databricks-sdk`
-(capability `compute-grants`).
+"""Adaptador del puerto de permisos del canal del plano de control sobre
+`databricks-sdk` (capability `compute-grants`, extendida por
+`grants-apps-tokens`).
 
 Implementación de producción del transporte (design D3) que el canal
 `CanalControlComputo` consume por inyección: traduce las operaciones del puerto
@@ -14,10 +15,12 @@ warehouses y los serverless compute objects — `PATCH requests for warehouse ..
 with owner permissions are not supported, please use PUT with the full set of
 permissions`. El canal ya compone la ACL mediante lectura-modificación-escritura
 (design D4), así que la escritura envía el conjunto completo por
-`PUT /api/2.0/permissions/<recurso>/<id>`. La lectura sigue usando
-`cliente.permissions.get`. Este módulo NO importa `databricks-sdk` al importarse
-(regla del proyecto de suites libres de SDK): solo usa el cliente ya inyectado,
-sin credenciales ni valores de conexión.
+`PUT /api/2.0/permissions/<recurso>/<id>`. Para recursos singleton como
+`authorization/tokens` (uso de personal access tokens, C8) la ruta se construye
+sin segmento de id: `/api/2.0/permissions/authorization/tokens`. La lectura
+sigue usando `cliente.permissions.get`. Este módulo NO importa `databricks-sdk`
+al importarse (regla del proyecto de suites libres de SDK): solo usa el cliente
+ya inyectado, sin credenciales ni valores de conexión.
 
 Los errores del SDK se traducen a `ErrorCanal` con el código del error
 antepuesto `[CODIGO]` y el detalle: la clasificación de dominio (permiso
@@ -80,8 +83,10 @@ class ClientePermisosSdk:
 
         Args:
             recurso (str): recurso de la Permissions API (`clusters`,
-                `serverless-compute`, `sql/warehouses`).
-            identificador (str): id del objeto, con su escritura original.
+                `serverless-compute`, `sql/warehouses`, `apps`,
+                `authorization/tokens`).
+            identificador (str): id del objeto, con su escritura original;
+                vacío para recursos singleton (`authorization/tokens`).
 
         Returns:
             tuple[EntradaAcl, ...]: una entrada por nivel directo de cada
@@ -121,10 +126,12 @@ class ClientePermisosSdk:
         (nunca reemplaza la ACL sin conocer su estado previo); aquí se traduce la
         lista resultante al cuerpo que espera la Permissions API y se envía por
         PUT, que es la vía admitida para objetos con propietario (`IS_OWNER`).
+        Para recursos singleton (`authorization/tokens`) el identificador queda
+        vacío y la ruta se construye sin segmento de id.
 
         Args:
             recurso (str): recurso de la Permissions API.
-            identificador (str): id del objeto.
+            identificador (str): id del objeto, o vacío para singleton.
             entradas (list[EntradaAcl]): ACL completa a aplicar, una entrada
                 por otorgatario directo.
 
@@ -137,12 +144,17 @@ class ClientePermisosSdk:
                 _SolicitudDeEntrada(entrada) for entrada in entradas
             ]
         }
+        # authorization/tokens es singleton: sin segmento de id (design D2).
+        if identificador:
+            ruta = PLANTILLA_RUTA_PERMISOS.format(
+                recurso=recurso, identificador=identificador
+            )
+        else:
+            ruta = f"/api/2.0/permissions/{recurso}"
         try:
             self.cliente.api_client.do(
                 "PUT",
-                PLANTILLA_RUTA_PERMISOS.format(
-                    recurso=recurso, identificador=identificador
-                ),
+                ruta,
                 body=cuerpo,
                 headers={"Content-Type": "application/json"},
             )

@@ -1,11 +1,12 @@
-"""Canal SDK/REST real del plano de control para objetos de cómputo
-(capability `compute-grants`).
+"""Canal SDK/REST real del plano de control para cinco tipos de objetos
+(capability `compute-grants` extendida por `grants-apps-tokens`).
 
 Implementación de producción del contrato `CanalControl` para otorgar, revocar
-y listar permisos sobre los tres tipos de cómputo del plano de control
-(cluster clásico all-purpose, serverless compute objects interactivos y
-automated, y SQL warehouse) mediante la Permissions API, y para consultar la
-ACL vigente de un objeto (verificación posterior al otorgamiento, design D5).
+y listar permisos sobre los tres tipos de cómputo del plano de control (cluster
+clásico all-purpose, serverless compute objects interactivos y automated, y SQL
+warehouse) y los dos tipos restantes (Databricks Apps y uso de personal access
+tokens) mediante la Permissions API, y para consultar la ACL vigente de un
+objeto (verificación posterior al otorgamiento, design D5).
 
 El canal depende de un transporte de permisos inyectado (design D3): en
 producción el adaptador SDK (`ClientePermisosSdk`), en las pruebas unitarias y
@@ -15,10 +16,10 @@ objeto ni nivel de permiso vive en el código (regla "código NO hardcodeado"):
 el transporte es la única ruta hacia el workspace.
 
 El mapeo de recurso de la Permissions API por tipo de objeto es un dato
-declarativo (design D2), con los tres tipos de cómputo. Un tipo ajeno —ya sea
-del plano de datos o de Databricks Apps / tokens (change `grants-apps-tokens`,
-C8)— se rechaza con `ErrorCanal` explícito antes de construir llamada alguna
-(spec - "Tipo de objeto no soportado por el canal").
+declarativo (design D2), con los cinco tipos del plano de control. Un tipo
+ajeno —del plano de datos (catálogo, esquema, tabla, etc.) o cualquier otro no
+declarado— se rechaza con `ErrorCanal` explícito antes de construir llamada
+alguna (spec - "Tipo de objeto no soportado por el canal").
 
 La escritura de la ACL es aditiva por otorgatario (design D4): nunca se
 reemplaza la ACL completa sin antes leerla; la composición de entradas modifica
@@ -29,6 +30,9 @@ escritura un número acotado de veces.
 La construcción de recursos y rutas se expone como métodos estáticos para que
 las pruebas unitarias la verifiquen sin transporte alguno; la ejecución y la
 traducción de errores operan sobre el puerto inyectado (`LeerAcl`/`EscribirAcl`).
+
+Para `USO_TOKEN` el recurso es `authorization/tokens`, que opera como singleton
+del workspace (sin identificador de objeto en la ruta de la Permissions API).
 """
 
 import re
@@ -47,17 +51,21 @@ from control_accesos.dominio.modelos import ItemGrant
 # y resolución ya existentes).
 MODULO_BITACORA_ERRORES = "canal_control"
 
-# Recurso de la Permissions API por tipo de objeto de cómputo del plano de
-# control (design D2). Los valores son los literales que el SDK usa como
+# Recurso de la Permissions API por tipo de objeto del plano de control
+# (design D2). Los valores son los literales que el SDK usa como
 # `request_object_type` en `permissions.get`/`permissions.update`, y los
 # confirmados contra el workspace en la capa integral de C3
-# (`tests/integrales/adaptador_canales_reales.py`). Databricks Apps y el uso de
-# personal access token no se declaran aquí: son del change `grants-apps-tokens`
-# (C8) y quedan fuera de alcance por construcción (design D2/D9).
+# (`tests/integrales/adaptador_canales_reales.py`). Tras la extensión de C8
+# (change `grants-apps-tokens`), el canal cubre los cinco tipos del plano de
+# control: los tres de cómputo más Databricks Apps y uso de personal access
+# tokens. Para USO_TOKEN el recurso es `authorization/tokens`, que opera como
+# singleton del workspace (sin identificador de objeto en la ruta).
 RECURSO_PERMISOS_POR_TIPO_OBJETO = {
     TipoObjeto.COMPUTO_CLASICO: "clusters",
     TipoObjeto.COMPUTO_SERVERLESS: "serverless-compute",
     TipoObjeto.SQL_WAREHOUSE: "sql/warehouses",
+    TipoObjeto.DATABRICK_APP: "apps",
+    TipoObjeto.USO_TOKEN: "authorization/tokens",
 }
 
 # Prefijo de la Permissions API usado en las rutas que reportan los mensajes y
@@ -116,6 +124,17 @@ PATRONES_CONFLICTO_ESCRITURA = (
     re.compile(r"CONCURRENT_MODIFICATION", re.IGNORECASE),
 )
 
+# Patrón para detectar que la Token Permissions API no está habilitada en el
+# workspace (change grants-apps-tokens, C8). El workspace responde con un error
+# que indica que la feature no está disponible; el canal lo clasifica como
+# ErrorCanal con mensaje específico que identifica la feature no habilitada.
+PATRONES_FEATURE_NO_HABILITADA = (
+    re.compile(r"not\s+enabled", re.IGNORECASE),
+    re.compile(r"feature\s+not\s+enabled", re.IGNORECASE),
+    re.compile(r"FEATURE_NOT_ENABLED", re.IGNORECASE),
+    re.compile(r"TOKEN_PERMISSIONS_API_NOT_ENABLED", re.IGNORECASE),
+)
+
 
 class CanalControlComputo(CanalControl):
     """Canal real del plano de control para permisos de cómputo.
@@ -168,18 +187,18 @@ class CanalControlComputo(CanalControl):
 
         Returns:
             str: recurso de la Permissions API en su forma textual
-                (`clusters`, `serverless-compute` o `sql/warehouses`).
+                (`clusters`, `serverless-compute`, `sql/warehouses`,
+                `apps` o `authorization/tokens`).
 
         Raises:
-            ErrorCanal: si el tipo no es ninguno de los tres tipos de cómputo
-                soportados; el mensaje identifica el tipo recibido.
+            ErrorCanal: si el tipo no pertenece al plano de control; el mensaje
+                identifica el tipo recibido.
         """
         recurso = RECURSO_PERMISOS_POR_TIPO_OBJETO.get(tipo)
         if recurso is None:
             raise ErrorCanal(
                 f"El tipo de objeto '{tipo.value}' no pertenece al plano de "
-                "control con cómputo gestionado por este canal: no tiene "
-                "recurso en la Permissions API (change grants-compute)."
+                "control: no tiene recurso en la Permissions API."
             )
         return recurso
 
@@ -190,18 +209,23 @@ class CanalControlComputo(CanalControl):
         Sirve para los mensajes y para que las pruebas verifiquen el mapeo de
         recurso e id sin ejecutar llamadas. El id del objeto se conserva con su
         escritura original (los identificadores del plano de control no se
-        normalizan a minúsculas, a diferencia del plano de datos).
+        normalizan a minúsculas, a diferencia del plano de datos). Para
+        `USO_TOKEN` (singleton del workspace) la ruta omite el segmento de id.
 
         Args:
             objeto (ObjetoSecurable): objeto del plano de control.
 
         Returns:
-            str: ruta `/api/2.0/permissions/<recurso>/<identificador>`.
+            str: ruta `/api/2.0/permissions/<recurso>/<identificador>`, o
+                `/api/2.0/permissions/authorization/tokens` para USO_TOKEN.
 
         Raises:
             ErrorCanal: si el tipo del objeto no está soportado por el canal.
         """
         recurso = CanalControlComputo.RecursoDeTipo(objeto.tipo)
+        if objeto.tipo is TipoObjeto.USO_TOKEN:
+            # authorization/tokens es singleton del workspace: sin segmento de id
+            return f"{PREFIJO_API_PERMISOS}/{recurso}"
         return f"{PREFIJO_API_PERMISOS}/{recurso}/{objeto.identificador}"
 
     def EjecutarOtorgamiento(self, item):
@@ -246,8 +270,14 @@ class CanalControlComputo(CanalControl):
             ErrorCanal: si el tipo del objeto no está soportado por el canal.
         """
         recurso = self.RecursoDeTipo(objeto.tipo)
+        # authorization/tokens es singleton del workspace: sin identificador
+        # de objeto (design D2).
+        identificador = (
+            "" if objeto.tipo is TipoObjeto.USO_TOKEN
+            else objeto.identificador
+        )
         try:
-            entradas = self.transporte.LeerAcl(recurso, objeto.identificador)
+            entradas = self.transporte.LeerAcl(recurso, identificador)
         except Exception as error:  # noqa: BLE001 - se traduce a canal
             self._RegistrarError(error, objeto=objeto)
             self._TraducirError(error, objeto=objeto)
@@ -275,10 +305,16 @@ class CanalControlComputo(CanalControl):
                 otro fallo o conflicto no resuelto dentro de los reintentos.
         """
         recurso = self.RecursoDeTipo(item.objeto.tipo)
+        # authorization/tokens es singleton del workspace: sin identificador
+        # de objeto (design D2).
+        identificador = (
+            "" if item.objeto.tipo is TipoObjeto.USO_TOKEN
+            else item.objeto.identificador
+        )
 
         for intento in range(NUM_REINTENTOS_CONFLICTO):
             try:
-                entradas = self.transporte.LeerAcl(recurso, item.objeto.identificador)
+                entradas = self.transporte.LeerAcl(recurso, identificador)
             except Exception as error:  # noqa: BLE001 - se traduce a canal
                 self._RegistrarError(error, item)
                 self._TraducirError(error, item=item)
@@ -287,7 +323,7 @@ class CanalControlComputo(CanalControl):
 
             try:
                 self.transporte.EscribirAcl(
-                    recurso, item.objeto.identificador, entradas_nuevas
+                    recurso, identificador, entradas_nuevas
                 )
                 return
             except Exception as error:  # noqa: BLE001 - se traduce a canal
@@ -335,7 +371,7 @@ class CanalControlComputo(CanalControl):
         Raises:
             ErrorPrivilegiosInsuficientes: si el error es permiso denegado.
             ErrorCanal: en cualquier otro caso, con mensaje específico (objeto o
-                principal inexistente) o genérico.
+                principal inexistente, feature no habilitada) o genérico.
         """
         texto = str(error)
         if _CoincideAlgunPatron(texto, PATRONES_PERMISO_DENEGADO):
@@ -349,6 +385,9 @@ class CanalControlComputo(CanalControl):
             raise ErrorCanal(self._MensajePrincipalInexistente(item))
         if _CoincideAlgunPatron(texto, PATRONES_OBJETO_INEXISTENTE):
             raise ErrorCanal(self._MensajeObjetoInexistente(item=item, objeto=objeto))
+        # Token Permissions API no habilitada en el workspace (C8, design D6).
+        if _CoincideAlgunPatron(texto, PATRONES_FEATURE_NO_HABILITADA):
+            raise ErrorCanal(self._MensajeFeatureNoHabilitada(item=item, objeto=objeto))
         raise ErrorCanal(texto)
 
     @staticmethod
@@ -424,6 +463,29 @@ class CanalControlComputo(CanalControl):
         return (
             f"El principal '{item.principal.identificador}' no existe en el "
             "workspace."
+        )
+
+    @staticmethod
+    def _MensajeFeatureNoHabilitada(item=None, objeto=None):
+        """Mensaje del caso Token Permissions API no habilitada en el workspace.
+
+        Args:
+            item (ItemGrant | None): ítem cuya operación no pudo completarse.
+            objeto (ObjetoSecurable | None): objeto consultado, si no hay ítem.
+
+        Returns:
+            str: texto explícito en español de la feature no habilitada.
+        """
+        if item is not None:
+            return (
+                f"El workspace no tiene habilitada la Token Permissions API; "
+                f"no se puede gestionar {item.privilegio} sobre "
+                f"{item.objeto.tipo.value} (feature no habilitada)."
+            )
+        return (
+            f"El workspace no tiene habilitada la Token Permissions API; "
+            f"no se puede consultar la ACL de {objeto.tipo.value} "
+            f"(feature no habilitada)."
         )
 
 

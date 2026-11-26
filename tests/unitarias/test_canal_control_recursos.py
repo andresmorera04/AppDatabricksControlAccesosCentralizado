@@ -1,10 +1,13 @@
 """Pruebas unitarias del mapeo declarativo de recursos y el rechazo de tipos
-ajenos del canal de cómputo (tareas 1.1 y 1.2 del change `grants-compute`).
+ajenos del canal del plano de control (change `grants-compute`, extendido por
+`grants-apps-tokens`).
 
 Verifican el dato declarativo `RECURSO_PERMISOS_POR_TIPO_OBJETO` (design D2), la
 construcción de la ruta con la conservación de la escritura del id (los ids del
 plano de control no se normalizan a minúsculas) y la validación del transporte
-inyectado en el constructor, sin realizar llamada externa alguna.
+inyectado en el constructor, sin realizar llamada externa alguna. El canal
+cubre cinco tipos del plano de control: los tres de cómputo de C7 más
+Databricks Apps y uso de personal access tokens de C8.
 """
 
 import pytest
@@ -20,7 +23,7 @@ from control_accesos.dominio.modelos import ObjetoSecurable
 
 
 class TestRecursoDeTipo:
-    """El mapa declarativo asocia cada tipo de cómputo a su recurso de la API."""
+    """El mapa declarativo asocia cada tipo del plano de control a su recurso."""
 
     def TestClusterClasico(self):
         recurso = CanalControlComputo.RecursoDeTipo(TipoObjeto.COMPUTO_CLASICO)
@@ -34,23 +37,33 @@ class TestRecursoDeTipo:
         recurso = CanalControlComputo.RecursoDeTipo(TipoObjeto.SQL_WAREHOUSE)
         assert recurso == "sql/warehouses"
 
+    def TestDatabricksApp(self):
+        recurso = CanalControlComputo.RecursoDeTipo(TipoObjeto.DATABRICK_APP)
+        assert recurso == "apps"
+
+    def TestUsoToken(self):
+        recurso = CanalControlComputo.RecursoDeTipo(TipoObjeto.USO_TOKEN)
+        assert recurso == "authorization/tokens"
+
     def TestMapaCompleto(self):
         assert set(RECURSO_PERMISOS_POR_TIPO_OBJETO) == {
             TipoObjeto.COMPUTO_CLASICO,
             TipoObjeto.COMPUTO_SERVERLESS,
             TipoObjeto.SQL_WAREHOUSE,
+            TipoObjeto.DATABRICK_APP,
+            TipoObjeto.USO_TOKEN,
         }
 
 
 class TestRechazoTipoAjeno:
-    """Un tipo fuera de los tres de cómputo se rechaza antes de llamar a la API."""
+    """Un tipo del plano de datos se rechaza antes de llamar a la API."""
 
     @pytest.mark.parametrize(
         "tipo_recibido",
         [
             TipoObjeto.TABLA_DELTA,
-            TipoObjeto.DATABRICK_APP,
-            TipoObjeto.USO_TOKEN,
+            TipoObjeto.ESQUEMA,
+            TipoObjeto.VOLUMEN,
         ],
     )
     def TestRechazo(self, tipo_recibido):
