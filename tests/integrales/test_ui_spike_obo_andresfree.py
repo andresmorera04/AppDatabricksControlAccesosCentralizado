@@ -101,8 +101,10 @@ RUTA_RELATIVA_EVIDENCIA = (
 )
 RUTA_ARCHIVO_EVIDENCIA = RAIZ_PROYECTO / Path(RUTA_RELATIVA_EVIDENCIA)
 
-# Estado de la App que permite ejecutar las sondas.
-ESTADO_APP_ACTIVA = "ACTIVE"
+# Estados de la App que permiten ejecutar las sondas (observados en la Apps
+# API: UNAVAILABLE antes del primer despliegue, RUNNING una vez desplegada y
+# arrancada; ACTIVE aparece en compute_status, no en app_status).
+ESTADOS_APP_OPERATIVA = ("RUNNING", "ACTIVE")
 
 # Scopes de autorización de usuario que la App spike debe tener declarados
 # (catálogo oficial de scopes soportados por Databricks Apps, consultado en
@@ -247,10 +249,10 @@ def TestAppSpikeCreadaActivaConScopes():
     if isinstance(estado_app, dict):
         # La Apps API devuelve app_status como objeto {message, state}.
         estado_app = estado_app.get("state")
-    assert estado_app == ESTADO_APP_ACTIVA, (
-        f"La App '{NOMBRE_APP_SPIKE}' no está activa (estado: "
-        f"{estado_app!r}); despliegue/arranque pendientes. "
-        f"{INSTRUCCIONES_GATE}"
+    assert estado_app in ESTADOS_APP_OPERATIVA, (
+        f"La App '{NOMBRE_APP_SPIKE}' no está desplegada y en ejecución "
+        f"(estado: {estado_app!r}; esperado uno de {ESTADOS_APP_OPERATIVA}); "
+        f"despliegue/arranque pendientes. {INSTRUCCIONES_GATE}"
     )
 
 
