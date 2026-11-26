@@ -48,9 +48,9 @@ Se crea `control_accesos/ui/` con cuatro responsabilidades: controlador de event
 
 ### D3 — Una composición OBO por acción y por llamante
 
-Un `ProveedorIdentidadDatabricksApp` implementa `ProveedorIdentidadLlamante` y obtiene el token mediante un acceso inyectable a los headers, usando `x-forwarded-access-token` en producción y dobles en pruebas. Resuelve identidad y grupos mediante SCIM con un `WorkspaceClient` construido explícitamente con host y token OBO.
+Un `ProveedorIdentidadDatabricksApp` implementa `ProveedorIdentidadLlamante` y obtiene el token mediante un acceso inyectable a los headers, usando `x-forwarded-access-token` en producción y dobles en pruebas. Resuelve identidad y grupos mediante SCIM con un `WorkspaceClient` construido explícitamente con host, token OBO y `auth_type='pat'` (hallazgo F1 del spike 2.4: el runtime de la App trae en el entorno credenciales OAuth de su propio service principal y, sin método explícito, el SDK aborta por combinación `oauth and pat` o podría preferir el OAuth de la App).
 
-`FabricaContextoLlamante` crea, para cada acción, el proveedor, `ServicioIdentidadLlamante`, cliente SDK, sesión `DatabricksSession`, canales, resolutor y pipeline. SDK y Spark reciben el mismo token; no se reutilizan singletons de módulo ni objetos entre sesiones de Streamlit. El estado de sesión guarda selecciones y modelos de vista, nunca tokens, headers, clientes OBO ni sesiones Spark.
+`FabricaContextoLlamante` crea, para cada acción, el proveedor, `ServicioIdentidadLlamante`, cliente SDK, sesión SQL remota (Statement Execution API, ver D5), canales, resolutor y pipeline. El SDK y la sesión SQL remota reciben el mismo token con `auth_type='pat'`; no se reutilizan singletons de módulo ni objetos entre sesiones de Streamlit. El estado de sesión guarda selecciones y modelos de vista, nunca tokens, headers, clientes OBO ni sesiones remotas.
 
 - *Alternativa: un pipeline global al que solo se cambia `identidad_llamante`.* Descartada: esa identidad no autentica los canales y mezclaría credenciales entre usuarios.
 - *Alternativa: heredar las credenciales de la App mediante autoconfiguración.* Descartada: podría seleccionar el service principal de la App; la credencial OBO se pasa explícitamente y no hay fallback de grants.
@@ -61,16 +61,21 @@ Antes de construir la vertical completa se despliega un spike mínimo que valida
 
 Si el workspace no ofrece un scope necesario para una operación del alcance, la implementación se detiene en ese gate y se eleva al humano la limitación concreta. No se sustituye por la identidad de la App ni se declara disponible una operación no verificada. Los recursos de cómputo y warehouse, cuando aplique, se inyectan por `app.yaml`/variables de entorno y se referencian desde `config/app_properties.json`, sin host, token, secretos ni ids embebidos en Python.
 
+**Evidencia empírica del spike (2026-11-26, tareas 2.4/2.6):** las 24 sondas desplegadas en `andresFree` dieron GO para identidad OBO, descubrimiento UC (catálogos, esquemas, tablas, conexiones), listado de SQL warehouses y ACL de lectura y escritura en Apps; NO-GO por scopes no otorgables en Apps para listados SCIM (`scim`), clusters (`clusters`), Permissions API de warehouses (`access-management`) y tokens (`all-apis`). También reveló el fallo estructural de `databricks-connect` en la imagen de la App (hallazgo F2, ver D5). La prueba concluyente del catálogo de scopes es la tarea 2.7; de su resultado deriva el ajuste de alcance revisado (tareas posteriores y specs).
+
 - *Alternativa: descubrir la limitación al final mediante las integrales.* Descartada: una carencia de scope cambia la viabilidad de OBO y debe detectarse antes de implementar toda la UI.
 
-### D5 — Databricks Connect en runtime y dos archivos de dependencias
+### D5 — Transporte SQL remoto en runtime y dos archivos de dependencias
 
-`requirements.txt` contiene Streamlit, `databricks-sdk` y una versión compatible de `databricks-connect`; no contiene `pytest`, `pyspark` ni `delta-spark`. Connect permite reutilizar las operaciones Spark ya exigidas por SQL, persistencia y agregación sin instalar un Spark local en la App. El pin se determina en el spike según Python de la imagen y runtime serverless, no se presupone desde `pyspark==4.2.0`.
+La decisión original prescribía Databricks Connect en runtime. El spike (tareas 2.4/2.6, hallazgo F2) lo descartó empíricamente en la App: la imagen de Apps usa Python 3.11, que obliga a `databricks-connect` 15.4 (basado en Spark 3.5), cuyo `Builder` no tiene `create()` —método que solo existe en Connect ≥16, incompatible con Python 3.11—, y `getOrCreate()` es inadmisible porque reutiliza la sesión activa del proceso y rompería el aislamiento OBO por llamante (D3).
 
-`requirements-dev.txt` contiene las dependencias de suite (`pytest`, `pyspark`, `delta-spark`) y los pins compartidos necesarios para probar SDK/UI, pero **no** incluye `-r requirements.txt` ni Databricks Connect, evitando el conflicto Connect/PySpark local. La duplicación necesaria de pins compartidos se mantiene igual mediante una prueba de consistencia. Connect se valida en el entorno desplegado, no se instala en `~/.venv`.
+Transporte revisado: `SesionSqlRemota` sobre la SQL Statement Execution API del SDK (scope `sql`, verificado GO en el spike para listado de warehouses), construida por acción con host y token del llamante y `auth_type='pat'`. El encaje está verificado en el código existente: `CanalSqlDatos` solo exige `.sql()` a su sesión; los totales de lote se resuelven con un agregador alternativo en Python sobre el mismo puerto (el pipeline ya acepta `sesion_spark=None`); la escritura de bitácora usa INSERT vía REST (D10). La alternativa antes descartada (Statement Execution) se convierte en el único transporte viable en la App, con alcance acotado y probado.
 
-- *Alternativa: un único archivo con todo.* Descartada: Databricks Connect exige no tener el paquete PySpark local y el contenedor cargaría dependencias de pruebas innecesarias.
-- *Alternativa: Statement Execution como sustituto directo de Spark.* Descartada: no cubre las operaciones DataFrame usadas por persistencia y agregación sin reescribir capacidades anteriores.
+`requirements.txt` contiene Streamlit y `databricks-sdk`; ya no contiene `databricks-connect`, y nunca `pytest`, `pyspark` ni `delta-spark`. `requirements-dev.txt` conserva las dependencias de suite (`pytest`, `pyspark`, `delta-spark`, necesarias para la regresión de C1–C8) y los pins compartidos SDK/Streamlit, sin `-r requirements.txt`. La duplicación de pins compartidos se mantiene igual mediante pruebas de consistencia.
+
+- *Alternativa: un único archivo con todo.* Descartada: el contenedor cargaría dependencias de pruebas innecesarias y los pines locales de `pyspark` para la regresión C1–C8 no son compatibles con el runtime de la App.
+- *Alternativa: Connect con `getOrCreate()`.* Descartada: compartiría una única sesión por proceso entre llamantes; un segundo usuario podría operar con la credencial del primero (violación OBO de D3).
+- *Alternativa: Connect híbrido solo para auditoría.* Descartada de momento: añade una dependencia pesada al runtime para operaciones expresables como INSERT vía REST; se reconsiderará solo si el escritor REST resulta insuficiente.
 
 ### D6 — Descubrimiento OBO detrás de puertos, con errores explícitos
 
@@ -110,7 +115,7 @@ La confirmación tiene un indicador de procesamiento y se consume antes de inici
 
 Se separan dos contextos sin mezclar autoridad: descubrimiento, resolución, SQL de grants y Permissions API usan OBO; la escritura de tablas compartidas de auditoría usa la identidad propia de la App con permisos mínimos sobre el esquema `control_acceso_app`. El campo `usuario` sigue siendo la identidad OBO resuelta.
 
-La inicialización idempotente de persistencia y los escritores de bitácora se configuran con la sesión de App, mientras el pipeline recibe canales OBO y esos escritores. Una sesión agregada de reporte no reutiliza la sesión de auditoría. Un fallo de bitácora degrada a logs sin ocultar el reporte.
+La inicialización idempotente de persistencia y los escritores de bitácora operan en la App mediante un cliente REST con las credenciales de la App (sentencias DDL e INSERT INTO vía SQL Statement Execution API), sin sesión Spark, conforme a D5 revisado; en los contextos local/lote de C1–C8 los escritores Spark inyectados se conservan sin cambios. El `VerificadorIntegridad` basado en DataFrame queda fuera del camino crítico de la UI. Un agregador de reporte alternativo en Python no reutiliza el contexto de auditoría. Un fallo de bitácora degrada a logs sin ocultar el reporte.
 
 - *Alternativa: escribir bitácoras con cada usuario OBO.* Descartada: obligaría a conceder DDL/escritura en el esquema operativo a todos los usuarios de la UI.
 - *Alternativa: también ejecutar grants con la App.* Descartada: rompe D2 del proyecto y permite elevación de privilegios.

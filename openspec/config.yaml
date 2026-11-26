@@ -25,6 +25,11 @@ context: |
     funcionales, integrales (perfil CLI andresFree; andresAzureDev solo con
     aprobación expresa, marker azure_approval) y de aceptación, con informe
     por change.
+  - Trazabilidad obligatoria: cualquier ajuste, mejora o corrección de bugs
+    que cambie código debe registrarse como tarea en el tasks.md del change
+    activo; los hallazgos y su corrección se documentan además en el
+    delta-spec cuando afecten comportamiento especificado, con sus propias
+    tareas. Nada de código sin trazabilidad en artefactos.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.

@@ -25,6 +25,11 @@ La Databricks App SHALL autenticar al usuario mediante su contexto on-behalf-of 
 - **WHEN** dos usuarios utilizan la App con privilegios efectivos diferentes
 - **THEN** cada sesión descubre, clasifica y ejecuta exclusivamente con la identidad y credencial de su propio llamante
 
+#### Scenario: No herencia de credenciales de la App en runtime
+
+- **WHEN** el runtime de la App expone en el entorno las credenciales OAuth de su propio service principal
+- **THEN** la composición OBO fija el método de autenticación explícito al token del llamante y ninguna operación de descubrimiento, resolución o grants usa la identidad de la App
+
 ### Requirement: Descubrimiento de principals y objetos
 
 La interfaz SHALL ofrecer opciones de usuarios, grupos, service principals y objetos soportados obtenidas del workspace con la credencial del llamante. Un fallo de descubrimiento SHALL presentarse de forma controlada, sin elevar privilegios ni convertirlo en una lista aparentemente vacía.
