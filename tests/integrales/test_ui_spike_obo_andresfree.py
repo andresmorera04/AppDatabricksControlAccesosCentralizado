@@ -13,14 +13,17 @@ MANUALES por diseño, design.md D4 y plan de migración paso 2):
 1. crear la App spike en `andresFree` con autorización de usuario y los
    scopes requeridos::
 
-       databricks apps create control-accesos-spike \\
-         --profile andresFree \\
+       databricks apps create --profile andresFree \\
          --forward-user-access-token \\
          --description "Spike del gate OBO (C9 web-ui-minimalista)" \\
-         --json '{"user_api_scopes": ["sql", "apps", "catalog.catalogs",
+         --json '{"name": "control-accesos-spike",
+                  "user_api_scopes": ["sql", "apps", "catalog.catalogs",
                                       "catalog.schemas", "catalog.tables",
                                       "catalog.connections",
                                       "workspace.workspace"]}'
+
+   (con ``--json`` el CLI no admite el nombre posicional: va dentro del
+   cuerpo, en la clave ``name``)
 
 2. subir el bundle desplegable al sistema de archivos del workspace y
    desplegarlo. La subida usa ``databricks bundle sync`` (``databricks.yml``
