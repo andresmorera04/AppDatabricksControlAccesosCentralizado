@@ -1,0 +1,52 @@
+{
+  "prueba": "2.7-catalogo-scopes-apps",
+  "change": "web-ui-minimalista (C9)",
+  "fecha": "2026-11-26",
+  "app": "control-accesos-spike",
+  "entorno": "andresFree (AWS Free Edition, workspace 3156984717998572)",
+  "metodo": "databricks apps create-update APP --json con update_mask=user_api_scopes: los 7 scopes base más un scope candidato por intento; apps get final como control",
+  "intentos": [
+    {
+      "scope_candidato": "access-management",
+      "motivo": "exigido por la Permissions API de SQL warehouses (evidencia de sondas 2.4: acl_lectura_warehouse y acl_escritura_warehouse_restaurada en fallo)",
+      "resultado": "rechazado",
+      "error": "The specified scope access-management is not a valid scope. Please refer to the documentation for valid scopes."
+    },
+    {
+      "scope_candidato": "scim",
+      "motivo": "exigido por los listados SCIM de usuarios/grupos/service principals (evidencia de sondas 2.4: scim_usuarios, scim_grupos y scim_service_principals en fallo)",
+      "resultado": "rechazado",
+      "error": "The specified scope scim is not a valid scope. Please refer to the documentation for valid scopes."
+    },
+    {
+      "scope_candidato": "clusters",
+      "motivo": "exigido por el listado de clusters y sus ACL (evidencia de sondas 2.4: computo_clusters en fallo, acl_lectura_cluster y acl_escritura_cluster_restaurada no_disponible)",
+      "resultado": "rechazado",
+      "error": "The specified scope clusters is not a valid scope. Please refer to the documentation for valid scopes."
+    }
+  ],
+  "estado_final_app": {
+    "app_status": "RUNNING",
+    "user_api_scopes": [
+      "sql",
+      "apps",
+      "catalog.catalogs",
+      "catalog.schemas",
+      "catalog.tables",
+      "catalog.connections",
+      "workspace.workspace"
+    ],
+    "effective_user_api_scopes": [
+      "apps",
+      "catalog.catalogs",
+      "catalog.connections",
+      "catalog.schemas",
+      "catalog.tables",
+      "iam.access-control:read",
+      "iam.current-user:read",
+      "sql",
+      "workspace.workspace"
+    ]
+  },
+  "conclusion": "El catálogo de user_api_scopes de Databricks Apps está cerrado: access-management, scim y clusters no son otorgables (rechazo server-side explícito); all-apis (tokens) tampoco existe. Combinado con la evidencia de las 24 sondas (spike_obo_evidencia.json), el alcance viable de C9 queda limitado a: grants de Unity Catalog vía SQL (scope sql, transporte Statement Execution API tras el hallazgo F2), ACL de Databricks Apps (scope apps, lectura y escritura verificadas), identidad OBO del llamante (iam.current-user:read) y descubrimiento UC (catalog.*, incluido connections) más listado de SQL warehouses como recurso de ejecución. NO viables: listado SCIM de principals, grants CAN_USE sobre warehouses, CAN_ATTACH sobre clusters/serverless y CAN_USE sobre tokens. Pendiente la réplica cross-cloud en Azure Databricks (tarea 2.11)."
+}
