@@ -1,0 +1,56 @@
+# Dependencias de DESARROLLO / suite de pruebas (change C9 web-ui-minimalista).
+# Suite TDD local en ~/.venv (Python 3.14): capas unitarias, funcionales,
+# integrales y de aceptación (proposal.md - What Changes; design.md D5/D12).
+#
+# Reglas de este archivo (ver tests/unitarias/test_ui_dependencias.py):
+# - NO incluir `-r requirements.txt`: el runtime declara databricks-connect
+#   (desde la tarea 2.3) y Connect exige que el paquete pyspark NO esté
+#   instalado; la suite local necesita pyspark. Connect se valida en el
+#   entorno desplegado, nunca en ~/.venv.
+# - NO declarar databricks-connect.
+# - Los pins compartidos con requirements.txt (databricks-sdk, streamlit)
+#   deben coincidir EXACTAMENTE: lo que la suite prueba localmente es lo que
+#   el contenedor despliega.
+#
+# Regla del proyecto: la IA no instala nada en la Mac sin aprobación expresa
+# del humano. Ver README.md -> "Estándar de desarrollo" -> "Prohibición de
+# instalación por la IA".
+
+# pytest: motor de la suite TDD del proyecto (red -> green -> refactor).
+# Pin fijado sobre la versión presente en ~/.venv desde C1 para un entorno
+# reproducible.
+pytest==9.2.0
+
+# pyspark: motor de procesamiento masivo exigido por el estándar del proyecto
+# ("PySpark al máximo"). Base de la capa de persistencia (escrituras masivas en
+# append, helpers de integridad con anti-joins/semi-joins), de la agregación de
+# reportes de lote (C5) y de las pruebas funcionales con Spark local.
+# Se fija en 4.2.0 por compatibilidad con Python 3.14 del venv (primera línea
+# con soporte declarado de 3.14; la 4.0.x solo llega a 3.13) y con la
+# restricción de delta-spark (pyspark>=4.0.1,<=4.2.0).
+# Instalado en ~/.venv con aprobación y autorización explícita del humano.
+pyspark==4.2.0
+
+# delta-spark: soporte de Delta Lake para Spark local (OSS). Permite que las
+# pruebas funcionales creen y escriban tablas delta reales sin workspace, igual
+# que lo hará la aplicación en Databricks. Su restricción de pyspark fija el
+# par compatible: 4.4.1 <-> pyspark 4.2.0. Arrastra py4j como dependencia.
+# Instalado en ~/.venv con aprobación y autorización explícita del humano.
+delta-spark==4.4.1
+
+# databricks-sdk: pin COMPARTIDO con requirements.txt (deben coincidir).
+# Las pruebas unitarias/funcionales importan el canal SDK del plano de control
+# (C7/C8) y el descubrimiento OBO de la UI (C9, design.md D6).
+databricks-sdk==0.170.0
+
+# streamlit: pin COMPARTIDO con requirements.txt (deben coincidir). Las pruebas
+# funcionales de UI recorren las pantallas con `streamlit.testing.v1.AppTest`
+# sin navegador (design.md D12). Instalado con autorización expresa del humano
+# en la tarea 1.1 de C9.
+streamlit==1.67.0
+
+# PyYAML: parsing estructurado del manifiesto app.yaml en las pruebas
+# unitarias de configuración de despliegue (tarea 1.3, design.md D1). Solo
+# desarrollo: el runtime de la App no parsea su propio manifiesto (lo hace la
+# plataforma Databricks Apps). Instalado con autorización expresa del humano.
+PyYAML==6.0.4

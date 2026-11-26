@@ -1,38 +1,57 @@
-# Dependencias del proyecto (change C1 core-domain).
-# Regla del proyecto: la IA no instala nada en la Mac sin aprobación expresa del
-# humano. Ver README.md -> "Estándar de desarrollo" -> "Prohibición de instalación
-# por la IA".
+# Dependencias de RUNTIME de la Databricks App (change C9 web-ui-minimalista).
+# Este archivo es el que instala el contenedor de la App al desplegarse; desde
+# C9 queda separado de las dependencias de la suite local, que viven en
+# requirements-dev.txt (proposal.md - What Changes; design.md D5).
+#
+# Reglas del contenedor (ver tests/unitarias/test_ui_dependencias.py):
+# - NO declarar pytest, pyspark ni delta-spark: son solo de la suite local y el
+#   contenedor no necesita un Spark local.
+# - databricks-connect se añadirá aquí con su pin validado en la tarea 2.3
+#   (spike contra el runtime serverless), y exige que este archivo nunca
+#   conviva con pyspark (design.md D5).
+#
+# Regla del proyecto: la IA no instala nada en la Mac sin aprobación expresa
+# del humano. Ver README.md -> "Estándar de desarrollo" -> "Prohibición de
+# instalación por la IA".
 
-# pytest: motor de la suite TDD del proyecto (red -> green -> refactor).
-# Ya presente en ~/.venv (9.2.0); se declara aquí para que el entorno sea
-# reproducible y la instalación quede documentada.
-pytest
+# streamlit: framework de la interfaz web (design.md D1). Databricks Apps
+# documenta el arranque `streamlit run app.py` y el acceso al header OBO con
+# `st.context.headers.get("x-forwarded-access-token")`; incluye además
+# `streamlit.testing.v1.AppTest` para las pruebas funcionales de UI.
+# Pin 1.67.0 acordado con el humano en la tarea 1.1 de C9: estable más
+# reciente en PyPI (2026-11-05), requires_python >=3.11 sin techo, compatible
+# a la vez con la imagen estándar de Databricks Apps (Python 3.11) y con el
+# entorno local (Python 3.14.10). Instalado en ~/.venv con autorización
+# expresa del humano.
+streamlit==1.67.0
 
-# databricks-sdk: biblioteca oficial de Databricks. En C1 solo se DECLARÓ (no
-# se usa: los contratos de canales usan tipos propios del dominio, ver design.md
-# D4); se consume desde C7 (grants-compute) como transporte del canal SDK/REST
-# del plano de control (Permissions API).
-# Instalada en ~/.venv en C7 con `pip install` por autorización y decisión
-# expresa del humano (regla "Prohibición de instalación por la IA"), versión
-# 0.170.0 sobre Python 3.14.10.
+# databricks-sdk: biblioteca oficial de Databricks. Transporte del canal
+# SDK/REST del plano de control (Permissions API, C7/C8), cliente OBO de la UI
+# para descubrimiento de principals/objetos e identidad SCIM del llamante
+# (design.md D3/D6). Pin 0.170.0 heredado de C7, contrastado contra los
+# workspaces reales en la capa integral; compartido con requirements-dev.txt.
 databricks-sdk==0.170.0
 
-# Dependencias del change C2 (persistencia-bitacora).
-
-# pyspark: motor de procesamiento masivo exigido por el estándar del proyecto
-# ("PySpark al máximo"). Es la base de la capa de persistencia (escrituras
-# masivas en append, helpers de integridad con anti-joins/semi-joins) y de las
-# pruebas funcionales con Spark local (design.md D3/D8).
-# Se fija en 4.2.0 por compatibilidad con Python 3.14 del venv (primera línea
-# con soporte declarado de 3.14; la 4.0.x solo llega a 3.13) y con la
-# restricción de delta-spark (pyspark>=4.0.1,<=4.2.0).
-# Instalado en ~/.venv con aprobación y autorización explícita del humano
-# (regla "Prohibición de instalación por la IA").
-pyspark==4.2.0
-
-# delta-spark: soporte de Delta Lake para Spark local (OSS). Permite que las
-# pruebas funcionales creen y escriban tablas delta reales sin workspace, igual
-# que lo hará la aplicación en Databricks. Su restricción de pyspark fija el par
-# compatible: 4.4.1 <-> pyspark 4.2.0. Arrastra py4j como dependencia.
-# Instalado en ~/.venv con aprobación y autorización explícita del humano.
-delta-spark==4.4.1
+# databricks-connect: sesión Spark remota del runtime de la App (canal SQL del
+# plano de datos, persistencia de auditoría y agregación masiva de reportes de
+# lote) sin instalar un Spark local en el contenedor (design.md D5, tarea 2.3).
+#
+# Elección del pin 15.4.27, validada contra la documentación oficial
+# (dev-tools/databricks-connect/requirements, consultada en C9):
+# - la imagen estándar de Databricks Apps con pip usa Python 3.11
+#   (dev-tools/databricks-apps/system-env); las líneas 16.x-19.x de Connect
+#   exigen Python ==3.12.*, por lo que la única línea instalable en la App es
+#   la 15.4.x (tabla oficial: Connect 15.4 -> Python 3.11);
+# - el cómputo serverless está soportado desde Connect 15.4.10, y las
+#   versiones de Connect MENORES O IGUALES que el runtime serverless son
+#   plenamente compatibles: 15.4.x funciona contra serverless v2-v5
+#   (DBR 16.4/17.3/18.x);
+# - 15.4.27 es el parche más reciente de la línea (PyPI, 2026-11-13), que
+#   sigue recibiendo mantenimiento.
+#
+# INCOMPATIBILIDAD LOCAL (regla D5): databricks-connect distribuye su propio
+# pyspark y exige que el paquete `pyspark` NO esté instalado; el ~/.venv local
+# tiene pyspark==4.2.0 para la suite. Por eso Connect vive SOLO en este
+# archivo (runtime) y nunca en requirements-dev.txt; no se instala en la Mac y
+# se valida desplegado en el spike de la tarea 2.4 contra andresFree.
+databricks-connect==15.4.27
