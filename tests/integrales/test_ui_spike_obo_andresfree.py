@@ -23,11 +23,14 @@ MANUALES por diseño, design.md D4 y plan de migración paso 2):
                                       "workspace.workspace"]}'
 
 2. subir el bundle desplegable al sistema de archivos del workspace y
-   desplegarlo (el bundle es la raíz del proyecto: ``app.py``, ``app.yaml``,
-   ``requirements.txt``, ``config/`` y ``control_accesos/``)::
+   desplegarlo. La subida usa ``databricks bundle sync`` (``databricks.yml``
+   de la raíz): en el CLI v1.27 ``fs cp`` no soporta rutas WSFS
+   (``/Workspace/...``) y ``workspace import-dir`` convertiría los ``.py`` en
+   notebooks sin extensión; ``bundle sync`` sube exactamente ``app.py``,
+   ``app.yaml``, ``requirements.txt``, ``config/`` y ``control_accesos/``
+   preservando nombres y extensiones (verificado con ``--dry-run``)::
 
-       databricks fs cp -r <raiz-del-proyecto> \\
-         /Workspace/Users/<usuario>/spike-control-accesos --profile andresFree
+       databricks bundle sync
        databricks apps deploy control-accesos-spike \\
          --source-code-path /Workspace/Users/<usuario>/spike-control-accesos \\
          --profile andresFree
