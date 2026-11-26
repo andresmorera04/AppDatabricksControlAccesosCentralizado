@@ -1,108 +1,23 @@
-<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="5" time="1.357" timestamp="2026-11-26T01:49:22.383810-06:00" hostname="Andress-MacBook-Pro.local"><testcase classname="tests.integrales.test_ui_spike_obo_andresfree" name="TestBundleDesplegableCoherente" time="0.001" /><testcase classname="tests.integrales.test_ui_spike_obo_andresfree" name="TestAppSpikeCreadaActivaConScopes" time="1.304"><failure message="Failed: La App spike 'control-accesos-spike' no existe o no es accesible en andresFree. Pasos humanos pendientes (docstring de este módulo y tasks.md 2.4): crear la App con autorización de usuario y scopes, subir el bundle, desplegar, visitar la App, consentir, ejecutar las sondas y guardar la evidencia JSON descargada en 'results/web-ui-minimalista/spike_obo_evidencia.json'. Error del transporte: El CLI de Databricks falló al ejecutar get /api/2.0/apps/control-accesos-spike con el perfil 'andre...&#10;[+1 more line; full report in element text]">def TestAppSpikeCreadaActivaConScopes():
-        """La App spike existe en andresFree, está activa y declara los scopes."""
-        try:
-&gt;           respuesta = EjecutarComandoCli(["get", RUTA_API_APP_SPIKE])
-                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-tests/integrales/test_ui_spike_obo_andresfree.py:212: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-subcomando = ['get', '/api/2.0/apps/control-accesos-spike']
-perfil = 'andresFree', carga_json = None
-
-    def EjecutarComandoCli(subcomando, perfil=PERFIL_CLI_INTEGRAL, carga_json=None):
-        """Ejecuta `databricks api &lt;subcomando&gt;` y devuelve el JSON de respuesta.
-    
-        Args:
-            subcomando (list[str]): partes del subcomando `api` (por ejemplo,
-                `["post", "/api/2.0/sql/statements"]`).
-            perfil (str): perfil CLI autenticado a usar.
-            carga_json (dict | None): cuerpo JSON de la petición (solo POST).
-    
-        Returns:
-            dict: respuesta JSON del CLI.
-    
-        Raises:
-            ErrorTransporteDatabricks: si el CLI falla o su salida no es JSON.
-        """
-        comando = ["databricks", "api", *subcomando, "--profile", perfil]
-        if carga_json is not None:
-            comando += ["--json", json.dumps(carga_json)]
-    
-        proceso = subprocess.run(
-            comando,
-            capture_output=True,
-            text=True,
-            timeout=SEGUNDOS_LIMITE_CLI,
-        )
-        if proceso.returncode != 0:
-&gt;           raise ErrorTransporteDatabricks(
-                f"El CLI de Databricks falló al ejecutar {' '.join(subcomando)} "
-                f"con el perfil '{perfil}': {proceso.stderr.strip()}"
-            )
-E           adaptador_sql_databricks.ErrorTransporteDatabricks: El CLI de Databricks falló al ejecutar get /api/2.0/apps/control-accesos-spike con el perfil 'andresFree': Databricks skills are not installed. To work with Databricks reliably, first run: databricks aitools install --agents opencode --scope global
-E           Error: App with name control-accesos-spike does not exist or is deleted.
-
-tests/integrales/adaptador_sql_databricks.py:83: ErrorTransporteDatabricks
-
-During handling of the above exception, another exception occurred:
-
-    def TestAppSpikeCreadaActivaConScopes():
-        """La App spike existe en andresFree, está activa y declara los scopes."""
-        try:
-            respuesta = EjecutarComandoCli(["get", RUTA_API_APP_SPIKE])
-        except ErrorTransporteDatabricks as excepcion:
-&gt;           pytest.fail(
-                f"La App spike '{NOMBRE_APP_SPIKE}' no existe o no es accesible "
-                f"en andresFree. {INSTRUCCIONES_GATE} Error del transporte: "
-                f"{excepcion}"
-            )
-E           Failed: La App spike 'control-accesos-spike' no existe o no es accesible en andresFree. Pasos humanos pendientes (docstring de este módulo y tasks.md 2.4): crear la App con autorización de usuario y scopes, subir el bundle, desplegar, visitar la App, consentir, ejecutar las sondas y guardar la evidencia JSON descargada en 'results/web-ui-minimalista/spike_obo_evidencia.json'. Error del transporte: El CLI de Databricks falló al ejecutar get /api/2.0/apps/control-accesos-spike con el perfil 'andresFree': Databricks skills are not installed. To work with Databricks reliably, first run: databricks aitools install --agents opencode --scope global
-E           Error: App with name control-accesos-spike does not exist or is deleted.
-
-tests/integrales/test_ui_spike_obo_andresfree.py:214: Failed</failure></testcase><testcase classname="tests.integrales.test_ui_spike_obo_andresfree" name="TestEvidenciaDelGateDisponible" time="0.000"><failure message="Failed: No existe la evidencia del gate en 'results/web-ui-minimalista/spike_obo_evidencia.json'. Pasos humanos pendientes (docstring de este módulo y tasks.md 2.4): crear la App con autorización de usuario y scopes, subir el bundle, desplegar, visitar la App, consentir, ejecutar las sondas y guardar la evidencia JSON descargada en 'results/web-ui-minimalista/spike_obo_evidencia.json'.">def TestEvidenciaDelGateDisponible():
-        """La evidencia existe, es del spike y está ligada a un usuario OBO."""
-&gt;       evidencia = _CargarEvidencia()
-                    ^^^^^^^^^^^^^^^^^^
-
-tests/integrales/test_ui_spike_obo_andresfree.py:279: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-    def _CargarEvidencia():
-        """Carga y valida la estructura de la evidencia del gate.
-    
-        Returns:
-            dict: evidencia descargada desde la App desplegada.
-        """
-        if not RUTA_ARCHIVO_EVIDENCIA.is_file():
-&gt;           pytest.fail(
-                f"No existe la evidencia del gate en "
-                f"'{RUTA_RELATIVA_EVIDENCIA}'. {INSTRUCCIONES_GATE}"
-            )
-E           Failed: No existe la evidencia del gate en 'results/web-ui-minimalista/spike_obo_evidencia.json'. Pasos humanos pendientes (docstring de este módulo y tasks.md 2.4): crear la App con autorización de usuario y scopes, subir el bundle, desplegar, visitar la App, consentir, ejecutar las sondas y guardar la evidencia JSON descargada en 'results/web-ui-minimalista/spike_obo_evidencia.json'.
-
-tests/integrales/test_ui_spike_obo_andresfree.py:255: Failed</failure></testcase><testcase classname="tests.integrales.test_ui_spike_obo_andresfree" name="TestGateConjuntoMinimoVerificado" time="0.000"><failure message="Failed: No existe la evidencia del gate en 'results/web-ui-minimalista/spike_obo_evidencia.json'. Pasos humanos pendientes (docstring de este módulo y tasks.md 2.4): crear la App con autorización de usuario y scopes, subir el bundle, desplegar, visitar la App, consentir, ejecutar las sondas y guardar la evidencia JSON descargada en 'results/web-ui-minimalista/spike_obo_evidencia.json'.">def TestGateConjuntoMinimoVerificado():
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="5" time="0.682" timestamp="2026-11-26T09:08:36.470045-06:00" hostname="Andress-MacBook-Pro.local"><testcase classname="tests.integrales.test_ui_spike_obo_andresfree" name="TestBundleDesplegableCoherente" time="0.001" /><testcase classname="tests.integrales.test_ui_spike_obo_andresfree" name="TestAppSpikeCreadaActivaConScopes" time="0.635" /><testcase classname="tests.integrales.test_ui_spike_obo_andresfree" name="TestEvidenciaDelGateDisponible" time="0.001" /><testcase classname="tests.integrales.test_ui_spike_obo_andresfree" name="TestGateConjuntoMinimoVerificado" time="0.001"><failure message="AssertionError: GATE MÍNIMO NO-GO: el núcleo de C9 (identidad OBO, descubrimiento UC, SQL remoto y Permissions API del warehouse) no está verificado en andresFree:&#10;  - sql_select_uno: fallo — No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'&#10;  - sql_show_grants: fallo — No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'&#10;[+3 more lines; full report in element text]">def TestGateConjuntoMinimoVerificado():
         """GO/NO-GO mínimo: núcleo OBO viable en andresFree."""
-&gt;       evidencia = _CargarEvidencia()
-                    ^^^^^^^^^^^^^^^^^^
-
-tests/integrales/test_ui_spike_obo_andresfree.py:323: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-    def _CargarEvidencia():
-        """Carga y valida la estructura de la evidencia del gate.
+        evidencia = _CargarEvidencia()
     
-        Returns:
-            dict: evidencia descargada desde la App desplegada.
-        """
-        if not RUTA_ARCHIVO_EVIDENCIA.is_file():
-&gt;           pytest.fail(
-                f"No existe la evidencia del gate en "
-                f"'{RUTA_RELATIVA_EVIDENCIA}'. {INSTRUCCIONES_GATE}"
-            )
-E           Failed: No existe la evidencia del gate en 'results/web-ui-minimalista/spike_obo_evidencia.json'. Pasos humanos pendientes (docstring de este módulo y tasks.md 2.4): crear la App con autorización de usuario y scopes, subir el bundle, desplegar, visitar la App, consentir, ejecutar las sondas y guardar la evidencia JSON descargada en 'results/web-ui-minimalista/spike_obo_evidencia.json'.
+        problemas = _VerificarConjuntoGate(
+            evidencia, CONJUNTO_MINIMO_GATE, "mínimo"
+        )
+&gt;       assert not problemas, (
+            "GATE MÍNIMO NO-GO: el núcleo de C9 (identidad OBO, descubrimiento "
+            "UC, SQL remoto y Permissions API del warehouse) no está verificado "
+            "en andresFree:\n- " + "\n- ".join(problemas)
+        )
+E       AssertionError: GATE MÍNIMO NO-GO: el núcleo de C9 (identidad OBO, descubrimiento UC, SQL remoto y Permissions API del warehouse) no está verificado en andresFree:
+E         - sql_select_uno: fallo — No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'
+E         - sql_show_grants: fallo — No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'
+E         - acl_lectura_warehouse: fallo — ErrorCanal | Provided OAuth token does not have required scopes: access-management [ReqId: cda0a7bd-6d5d-40b3-9b2b-311cb9c999d9]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://db
+E         - acl_escritura_warehouse_restaurada: fallo — ErrorCanal | Provided OAuth token does not have required scopes: access-management [ReqId: 0ee662b4-834e-4093-9fa5-bcb5966606a6]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://db
+E       assert not ["sql_select_uno: fallo — No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | '...-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://db']
 
-tests/integrales/test_ui_spike_obo_andresfree.py:255: Failed</failure></testcase><testcase classname="tests.integrales.test_ui_spike_obo_andresfree" name="TestGateConjuntoCompletoVerificado" time="0.000"><failure message="Failed: No existe la evidencia del gate en 'results/web-ui-minimalista/spike_obo_evidencia.json'. Pasos humanos pendientes (docstring de este módulo y tasks.md 2.4): crear la App con autorización de usuario y scopes, subir el bundle, desplegar, visitar la App, consentir, ejecutar las sondas y guardar la evidencia JSON descargada en 'results/web-ui-minimalista/spike_obo_evidencia.json'.">def TestGateConjuntoCompletoVerificado():
+tests/integrales/test_ui_spike_obo_andresfree.py:339: AssertionError</failure></testcase><testcase classname="tests.integrales.test_ui_spike_obo_andresfree" name="TestGateConjuntoCompletoVerificado" time="0.001"><failure message="AssertionError: GATE COMPLETO NO-GO: limitaciones de scopes/recursos para el alcance total de C9 (elevar al humano; detener tareas posteriores):&#10;[+10 more lines; full report in element text]">def TestGateConjuntoCompletoVerificado():
         """GO/NO-GO completo: todas las operaciones del alcance C9 verificadas.
     
         Si alguna sonda de este conjunto falla, la limitación concreta debe
@@ -110,23 +25,26 @@ tests/integrales/test_ui_spike_obo_andresfree.py:255: Failed</failure></testcase
         se continúa con las tareas posteriores y NO se sustituye la credencial
         del llamante por la identidad de la App (design.md D4).
         """
-&gt;       evidencia = _CargarEvidencia()
-                    ^^^^^^^^^^^^^^^^^^
-
-tests/integrales/test_ui_spike_obo_andresfree.py:343: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-    def _CargarEvidencia():
-        """Carga y valida la estructura de la evidencia del gate.
+        evidencia = _CargarEvidencia()
     
-        Returns:
-            dict: evidencia descargada desde la App desplegada.
-        """
-        if not RUTA_ARCHIVO_EVIDENCIA.is_file():
-&gt;           pytest.fail(
-                f"No existe la evidencia del gate en "
-                f"'{RUTA_RELATIVA_EVIDENCIA}'. {INSTRUCCIONES_GATE}"
-            )
-E           Failed: No existe la evidencia del gate en 'results/web-ui-minimalista/spike_obo_evidencia.json'. Pasos humanos pendientes (docstring de este módulo y tasks.md 2.4): crear la App con autorización de usuario y scopes, subir el bundle, desplegar, visitar la App, consentir, ejecutar las sondas y guardar la evidencia JSON descargada en 'results/web-ui-minimalista/spike_obo_evidencia.json'.
+        problemas = _VerificarConjuntoGate(
+            evidencia, CONJUNTO_COMPLETO_GATE, "completo"
+        )
+&gt;       assert not problemas, (
+            "GATE COMPLETO NO-GO: limitaciones de scopes/recursos para el "
+            "alcance total de C9 (elevar al humano; detener tareas posteriores):\n- "
+            + "\n- ".join(problemas)
+        )
+E       AssertionError: GATE COMPLETO NO-GO: limitaciones de scopes/recursos para el alcance total de C9 (elevar al humano; detener tareas posteriores):
+E         - scim_usuarios: fallo — PermissionDenied | Provided OAuth token does not have required scopes: scim [ReqId: 540a926f-43fa-4776-b864-2f091130d569]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee89-99
+E         - scim_grupos: fallo — PermissionDenied | Provided OAuth token does not have required scopes: scim [ReqId: 0be58842-6713-4a19-938e-1f518eb066cf]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee89-99
+E         - scim_service_principals: fallo — PermissionDenied | Provided OAuth token does not have required scopes: scim [ReqId: a6b75bed-6e9d-49da-9674-b5a7a57309fb]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee89-99
+E         - computo_clusters: fallo — PermissionDenied | Provided OAuth token does not have required scopes: clusters [ReqId: b5c53d2b-9a84-457e-8993-2c05aa728cae]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee8
+E         - sql_show_volumes: fallo — No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'
+E         - sql_show_models: fallo — No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'
+E         - sql_show_external_locations: fallo — No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'
+E         - acl_lectura_tokens: fallo — ErrorCanal | Provided OAuth token does not have required scopes: all-apis [ReqId: 30f7a7d3-f614-4579-8599-9d247e203598]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee8
+E         - acl_escritura_tokens_restaurada: fallo — ErrorCanal | Provided OAuth token does not have required scopes: all-apis [ReqId: 5c7a288b-2d12-4946-83ab-611bf3d050b2]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee8
+E       assert not ['scim_usuarios: fallo — PermissionDenied | Provided OAuth token does not have required scopes: scim [ReqId: 540a926f-... la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'", ...]
 
-tests/integrales/test_ui_spike_obo_andresfree.py:255: Failed</failure></testcase></testsuite></testsuites>
+tests/integrales/test_ui_spike_obo_andresfree.py:359: AssertionError</failure></testcase></testsuite></testsuites>

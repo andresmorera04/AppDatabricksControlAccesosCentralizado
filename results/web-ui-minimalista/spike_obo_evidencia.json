@@ -1,0 +1,127 @@
+{
+  "spike": "spike-obo-c9",
+  "timestamp_utc": "2026-11-26T15:02:55.285965+00:00",
+  "usuario": "andresmorera04@gmail.com",
+  "sondas": [
+    {
+      "nombre": "identidad_obo",
+      "estado": "ok",
+      "detalle": "usuario=andresmorera04@gmail.com; grupos=4"
+    },
+    {
+      "nombre": "scim_usuarios",
+      "estado": "fallo",
+      "detalle": "PermissionDenied | Provided OAuth token does not have required scopes: scim [ReqId: 540a926f-43fa-4776-b864-2f091130d569]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee89-99"
+    },
+    {
+      "nombre": "scim_grupos",
+      "estado": "fallo",
+      "detalle": "PermissionDenied | Provided OAuth token does not have required scopes: scim [ReqId: 0be58842-6713-4a19-938e-1f518eb066cf]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee89-99"
+    },
+    {
+      "nombre": "scim_service_principals",
+      "estado": "fallo",
+      "detalle": "PermissionDenied | Provided OAuth token does not have required scopes: scim [ReqId: a6b75bed-6e9d-49da-9674-b5a7a57309fb]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee89-99"
+    },
+    {
+      "nombre": "uc_catalogos",
+      "estado": "ok",
+      "detalle": "catálogos=['oro', 'system', 'plata', 'bronce', 'workspace', 'samples', 'control', 'raw_data_preprod', 'dwh_preprod', 'control_preprod']; objetivo=control"
+    },
+    {
+      "nombre": "uc_esquemas",
+      "estado": "ok",
+      "detalle": "esquemas en 'control'=['control_acceso_app', 'data', 'default', 'information_schema', 'lab1', 'lab2', 'lab3', 'laboratorio']; objetivo=control_acceso_app"
+    },
+    {
+      "nombre": "uc_tablas",
+      "estado": "ok",
+      "detalle": "tablas en 'control.control_acceso_app': 2; primeras=['bitacora_errores', 'bitacora_eventos']"
+    },
+    {
+      "nombre": "uc_conexiones",
+      "estado": "ok",
+      "detalle": "conexiones UC: 0 elemento(s) listado(s)."
+    },
+    {
+      "nombre": "sql_warehouses",
+      "estado": "ok",
+      "detalle": "warehouses: 1; objetivo=c7db457bb4259e70"
+    },
+    {
+      "nombre": "computo_clusters",
+      "estado": "fallo",
+      "detalle": "PermissionDenied | Provided OAuth token does not have required scopes: clusters [ReqId: b5c53d2b-9a84-457e-8993-2c05aa728cae]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee8"
+    },
+    {
+      "nombre": "apps_lista",
+      "estado": "ok",
+      "detalle": "apps: 2; objetivo=control-accesos-spike"
+    },
+    {
+      "nombre": "sql_select_uno",
+      "estado": "fallo",
+      "detalle": "No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'"
+    },
+    {
+      "nombre": "sql_show_grants",
+      "estado": "fallo",
+      "detalle": "No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'"
+    },
+    {
+      "nombre": "sql_show_volumes",
+      "estado": "fallo",
+      "detalle": "No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'"
+    },
+    {
+      "nombre": "sql_show_models",
+      "estado": "fallo",
+      "detalle": "No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'"
+    },
+    {
+      "nombre": "sql_show_external_locations",
+      "estado": "fallo",
+      "detalle": "No se pudo establecer la sesión Databricks Connect con la credencial OBO: AttributeError | 'Builder' object has no attribute 'create'"
+    },
+    {
+      "nombre": "acl_lectura_warehouse",
+      "estado": "fallo",
+      "detalle": "ErrorCanal | Provided OAuth token does not have required scopes: access-management [ReqId: cda0a7bd-6d5d-40b3-9b2b-311cb9c999d9]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://db"
+    },
+    {
+      "nombre": "acl_lectura_cluster",
+      "estado": "no_disponible",
+      "detalle": "El workspace no expone un objeto 'clusters' descubierto; la lectura de ACL no pudo ejecutarse."
+    },
+    {
+      "nombre": "acl_lectura_app",
+      "estado": "ok",
+      "detalle": "ACL de 'apps' leída: 1 entrada(s) directa(s)."
+    },
+    {
+      "nombre": "acl_lectura_tokens",
+      "estado": "fallo",
+      "detalle": "ErrorCanal | Provided OAuth token does not have required scopes: all-apis [ReqId: 30f7a7d3-f614-4579-8599-9d247e203598]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee8"
+    },
+    {
+      "nombre": "acl_escritura_warehouse_restaurada",
+      "estado": "fallo",
+      "detalle": "ErrorCanal | Provided OAuth token does not have required scopes: access-management [ReqId: 0ee662b4-834e-4093-9fa5-bcb5966606a6]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://db"
+    },
+    {
+      "nombre": "acl_escritura_cluster_restaurada",
+      "estado": "no_disponible",
+      "detalle": "El workspace no expone un objeto 'clusters' descubierto; la escritura de ACL no pudo ejecutarse."
+    },
+    {
+      "nombre": "acl_escritura_app_restaurada",
+      "estado": "ok",
+      "detalle": "PUT sobre 'apps' re-aplicó la instantánea (1 entrada(s)); relectura coincide=True."
+    },
+    {
+      "nombre": "acl_escritura_tokens_restaurada",
+      "estado": "fallo",
+      "detalle": "ErrorCanal | Provided OAuth token does not have required scopes: all-apis [ReqId: 5c7a288b-2d12-4946-83ab-611bf3d050b2]. Config: host=https://dbc-e5f4ee89-991a.cloud.databricks.com, account_id=bd57738e-4767-4bd5-ba1d-b6d9f3616fd8, workspace_id=3156984717998572, discovery_url=https://dbc-e5f4ee89-991a.cloud.databricks.com/oidc/.well-known/oauth-authorization-server, token=***, token_audience=https://dbc-e5f4ee8"
+    }
+  ]
+}
