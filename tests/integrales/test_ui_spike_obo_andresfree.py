@@ -244,6 +244,9 @@ def TestAppSpikeCreadaActivaConScopes():
     )
 
     estado_app = respuesta.get("app_status") or respuesta.get("status")
+    if isinstance(estado_app, dict):
+        # La Apps API devuelve app_status como objeto {message, state}.
+        estado_app = estado_app.get("state")
     assert estado_app == ESTADO_APP_ACTIVA, (
         f"La App '{NOMBRE_APP_SPIKE}' no está activa (estado: "
         f"{estado_app!r}); despliegue/arranque pendientes. "
