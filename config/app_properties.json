@@ -6,5 +6,13 @@
   "limite_opciones_descubrimiento": 500,
   "tamano_pagina_descubrimiento": 100,
   "limite_items_por_lote": 200,
-  "identificador_logico_uso_token": "workspace"
+  "identificador_logico_uso_token": "workspace",
+  "privilegios_service_principal_broker": {
+    "rol_workspace": "admins",
+    "entitlements": [
+      "workspace-access",
+      "databricks-sql-access",
+      "workspace-consume"
+    ]
+  }
 }

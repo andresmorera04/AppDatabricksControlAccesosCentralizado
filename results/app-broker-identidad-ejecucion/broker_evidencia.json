@@ -1,0 +1,77 @@
+{
+  "spike": "spike-broker-app",
+  "timestamp_utc": "2026-11-27T00:47:49.469503+00:00",
+  "usuario": "andresmorera04@gmail.com",
+  "sondas": [
+    {
+      "nombre": "broker_scim_usuarios",
+      "estado": "ok",
+      "detalle": "usuarios SCIM (SP): 2 elemento(s) listado(s)."
+    },
+    {
+      "nombre": "broker_scim_grupos",
+      "estado": "ok",
+      "detalle": "grupos SCIM (SP): 5 elemento(s) listado(s)."
+    },
+    {
+      "nombre": "broker_scim_service_principals",
+      "estado": "ok",
+      "detalle": "service principals SCIM (SP): 5 elemento(s) listado(s)."
+    },
+    {
+      "nombre": "broker_clusters",
+      "estado": "ok",
+      "detalle": "clusters: 0; objetivo=None"
+    },
+    {
+      "nombre": "broker_serverless",
+      "estado": "ok",
+      "detalle": "serverless compute: 1; objetivo=2619240e-2a2e-37f8-986e-87cc278a8413"
+    },
+    {
+      "nombre": "broker_acl_lectura_warehouse",
+      "estado": "ok",
+      "detalle": "ACL de 'sql/warehouses' leída: 2 entrada(s) directa(s)."
+    },
+    {
+      "nombre": "broker_acl_lectura_cluster",
+      "estado": "no_disponible",
+      "detalle": "El workspace no expone un objeto 'clusters' descubierto; la lectura de ACL no pudo ejecutarse."
+    },
+    {
+      "nombre": "broker_acl_lectura_serverless",
+      "estado": "ok",
+      "detalle": "ACL de 'serverless-compute' leída: 2 entrada(s) directa(s)."
+    },
+    {
+      "nombre": "broker_acl_lectura_tokens",
+      "estado": "ok",
+      "detalle": "ACL de 'authorization/tokens' leída: 1 entrada(s) directa(s)."
+    },
+    {
+      "nombre": "broker_acl_escritura_warehouse_restaurada",
+      "estado": "ok",
+      "detalle": "PUT sobre 'sql/warehouses' re-aplicó la instantánea (2 entrada(s)); relectura coincide=True."
+    },
+    {
+      "nombre": "broker_acl_escritura_cluster_restaurada",
+      "estado": "no_disponible",
+      "detalle": "El workspace no expone un objeto 'clusters' descubierto; la escritura de ACL no pudo ejecutarse."
+    },
+    {
+      "nombre": "broker_acl_escritura_serverless_restaurada",
+      "estado": "ok",
+      "detalle": "PUT sobre 'serverless-compute' re-aplicó la instantánea (2 entrada(s)); relectura coincide=True."
+    },
+    {
+      "nombre": "broker_acl_escritura_tokens_restaurada",
+      "estado": "ok",
+      "detalle": "PUT sobre 'authorization/tokens' re-aplicó la instantánea (1 entrada(s)); relectura coincide=True."
+    },
+    {
+      "nombre": "broker_resolucion_privilegios",
+      "estado": "ok",
+      "detalle": "privilegios efectivos del llamante sobre el warehouse (ACL leída con SP): ['CAN_USE', 'IS_OWNER']"
+    }
+  ]
+}

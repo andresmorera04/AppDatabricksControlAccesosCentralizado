@@ -155,6 +155,31 @@ Los `proposal.md` de los 10 changes ya están capturados en `openspec/changes/`.
 - **Distribución de pruebas por entorno**: `andresFree` es el entorno primario y donde corre todo lo posible; las pruebas integrales en `andresAzureDev` se limitan al mínimo necesario que Free Edition no puede cubrir (por ejemplo, permisos sobre cómputo clásico) y están **pre-aprobadas** por el humano. El marker `azure_approval` las excluye de la suite por defecto (`pytest -m "not azure_approval"`); se ejecutan explícitamente con `pytest -m azure_approval`.
 - **Fixtures integrales de objetos externos (C6)**: la external location se crea contra `andresAzureDev` descubriendo por API el storage credential y la cuenta del workspace (nada hardcodeado) sobre el contenedor de pruebas `test`; la connection se crea contra `andresFree` con los datos del SQL Server de pruebas tomados de variables de entorno (`CONTROL_ACCESOS_SQLSERVER_*`, ver `.env.example`). Sin esas variables exportadas, las integrales de connection se saltan con motivo documentado y el resto de la suite sigue en verde.
 
+## Privilegios del service principal del modo broker
+
+El change `app-broker-identidad-ejecucion` introduce un **modelo broker**: la
+autorización se evalúa siempre con la identidad del llamante (OBO), y la
+ejecución de las superficies que el token del usuario no cubre (SCIM y ACLs del
+plano de control) la realiza el service principal de la App.
+
+Como **recurso de despliegue** (asignado por el humano, design.md D5), el
+service principal de la Databricks App recibe:
+
+| Concepto | Valor |
+|---|---|
+| Service principal | `app-62644q control-accesos-spike` (applicationId `8be05e5d-0808-4698-a26f-1a5f7a4b63a0`) |
+| Rol de workspace | **Workspace admin** (pertenencia directa al grupo SCIM `admins`) |
+| Entitlement | `databricks-sql-access` → **Databricks SQL Access** |
+| Entitlement | `workspace-access` → **Workspace Access** |
+| Entitlement | `workspace-consume` → **Consumer Access** |
+| Rollback | Retirar el SP del grupo `admins` y quitar los tres entitlements |
+
+Estos privilegios habilitan la EJECUCIÓN; **no** sustituyen la autorización del
+llamante: toda escritura broker exige validación previa de los privilegios
+efectivos del llamante y su revalidación al confirmar (design.md D2 del change).
+Cualquier propuesta de reducirlos se gestiona como un change de OpenSpec
+separado con evidencia (spec `app-broker-grants`).
+
 ## Licencia
 
 Ver [LICENSE](LICENSE).

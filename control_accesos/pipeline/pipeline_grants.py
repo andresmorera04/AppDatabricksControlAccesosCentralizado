@@ -64,6 +64,14 @@ RESULTADO_TODO_OTORGADO = "otorgado"
 RESULTADO_PARCIAL = "parcial"
 RESULTADO_SIN_OTORGADOS = "sin_otorgados"
 
+# Identidad de ejecución del modo broker (change `app-broker-identidad-ejecucion`,
+# spec `app-broker-grants` - "Aislamiento entre llamantes y auditoría con usuario
+# OBO"): cuando la App ejecuta con la identidad del service principal, el evento
+# lo declara en su detalle para distinguirlo de la ejecución OBO del llamante. El
+# campo `usuario` sigue siendo la identidad OBO que provocó el cambio.
+IDENTIDAD_EJECUCION_APP = "app"
+MARCAR_IDENTIDAD_EJECUCION_APP = " | ejecución: identidad de la App"
+
 
 class PipelineGrants:
     """Orquestador del flujo completo de otorgamiento de grants."""
@@ -77,7 +85,9 @@ class PipelineGrants:
         resolutor_privilegios=None,
         registrador_eventos=None,
         registrador_errores=None,
+        agregador_lote=None,
         sesion_spark=None,
+        identidad_ejecucion=None,
     ):
         """Inicializa el pipeline con sus dependencias inyectadas.
 
@@ -103,9 +113,23 @@ class PipelineGrants:
             registrador_errores (BitacoraErrores | None): escritor de la
                 bitácora de errores, usado solo si el registro del evento
                 falla. Si es None, el fallo se informa por salida de error.
+            agregador_lote (object | None): agregador del reporte de lote con el
+                puerto `Agregar(reporte) -> ReporteLoteGrant`. Inyectado por la
+                composición según la ruta: `AgregadorReporteLote` (PySpark) en
+                CLI/lote y `AgregadorReporteLotePython` en la Databricks App
+                (change `app-broker-identidad-ejecucion`, F2). Si se aporta,
+                tiene prioridad sobre `sesion_spark`. Obligatorio para devolver
+                un `ReporteLoteGrant`; el camino 1 a 1 no lo requiere.
             sesion_spark (SparkSession | None): sesión Spark para la agregación
-                masiva del reporte de lote (design.md D3). Obligatoria en el
-                camino de lote; el camino 1 a 1 no la requiere.
+                masiva del reporte de lote de la ruta CLI/lote (design.md D3,
+                retrocompatible). Si no hay `agregador_lote`, se construye con
+                ella un `AgregadorReporteLote` de PySpark.
+            identidad_ejecucion (str | None): identidad con la que se ejecuta el
+                cambio. None (por defecto) equivale a OBO (el llamante); en el
+                modo broker se pasa `IDENTIDAD_EJECUCION_APP`, de modo que el
+                detalle del evento de bitácora declare "identidad de la App"
+                mientras el campo `usuario` conserva al llamante OBO (spec
+                `app-broker-grants`).
 
         Raises:
             ErrorDominio: si alguno de los canales no implementa el contrato
@@ -131,13 +155,17 @@ class PipelineGrants:
         self._registrador_eventos = registrador_eventos
         self._registrador_errores = registrador_errores
 
-        # Agregador del reporte de lote (design.md D3): solo se usa en el
-        # camino de lote; el camino 1 a 1 no lo requiere.
-        self._agregador_lote = (
-            AgregadorReporteLote(sesion=sesion_spark)
-            if sesion_spark is not None
-            else None
-        )
+        # Agregador del reporte de lote (design.md D3): solo se usa en el camino
+        # de lote. El inyectado explícito tiene prioridad; si no, se deriva de
+        # la sesión Spark (ruta CLI/lote, retrocompatible).
+        self._agregador_lote = agregador_lote
+        if self._agregador_lote is None and sesion_spark is not None:
+            self._agregador_lote = AgregadorReporteLote(sesion=sesion_spark)
+
+        # Identidad con la que se ejecuta el cambio (OBO por defecto; `app` en
+        # el modo broker). Solo informa el detalle del evento: nunca sustituye el
+        # campo `usuario` (identidad OBO que provocó el cambio).
+        self._identidad_ejecucion = identidad_ejecucion
 
     def Procesar(self, solicitud, identidad_llamante=None):
         """Procesa una solicitud de grant de punta a punta.
@@ -274,14 +302,15 @@ class PipelineGrants:
         return self._AgregarReporteLote(reporte)
 
     def _AgregarReporteLote(self, reporte):
-        """Agrega el reporte de lote si hay sesión Spark inyectada.
+        """Agrega el reporte de lote si hay un agregador inyectado.
 
         Args:
             reporte (ReporteGrant): reporte base con las líneas por ítem.
 
         Returns:
-            ReporteLoteGrant | ReporteGrant: el reporte agregado si hay sesión,
-                o el reporte base si no (retrocompatible).
+            ReporteLoteGrant | ReporteGrant: el reporte agregado si hay
+                agregador (PySpark en CLI/lote o Python en la App), o el
+                reporte base si no (retrocompatible, no agrega totales).
         """
         if self._agregador_lote is None:
             return reporte
@@ -437,6 +466,7 @@ class PipelineGrants:
         return (
             f"{item.principal.identificador} - {item.privilegio} - "
             f"{item.objeto.identificador} - {linea.estado.value}"
+            f"{self._SufijoIdentidadEjecucion()}"
         )
 
     def _DetalleEvento(self, reporte):
@@ -459,7 +489,10 @@ class PipelineGrants:
             f"{estado}={cantidad}"
             for estado, cantidad in sorted(conteos_por_estado.items())
         )
-        return f"{len(reporte.lineas)} ítem(s) procesado(s): {desglose}"
+        return (
+            f"{len(reporte.lineas)} ítem(s) procesado(s): {desglose}"
+            f"{self._SufijoIdentidadEjecucion()}"
+        )
 
     def _ResultadoEvento(self, reporte):
         """Deriva el resultado observable del evento desde los estados.
@@ -480,6 +513,21 @@ class PipelineGrants:
         if cantidad_otorgados:
             return RESULTADO_PARCIAL
         return RESULTADO_SIN_OTORGADOS
+
+    def _SufijoIdentidadEjecucion(self):
+        """Devuelve la marca de ejecución de la App en el detalle (o vacío).
+
+        Solo en el modo broker el detalle del evento declara que la ejecución usó
+        la identidad de la App; en OBO (o sin identidad declarada) no se añade
+        nada. El campo `usuario` de la bitácora sigue siendo el llamante OBO.
+
+        Returns:
+            str: la marca `" | ejecución: identidad de la App"` en modo broker,
+                o una cadena vacía en cualquier otro caso.
+        """
+        if self._identidad_ejecucion == IDENTIDAD_EJECUCION_APP:
+            return MARCAR_IDENTIDAD_EJECUCION_APP
+        return ""
 
     def _RegistrarFalloDeAuditoria(self, excepcion, usuario):
         """Registra el fallo del registro del evento sin propagarlo.

@@ -10,13 +10,13 @@ Evidencia empírica de C9 (`results/web-ui-minimalista/`): el catálogo de `user
 
 - Cobertura total de tipos en la Databricks App mediante el modelo broker, con la autorización por llamante intacta (C3) y verificada con un spike desplegado (gate go/no-go) antes de reanudar C9.
 - Preservar OBO donde es viable (grants UC vía SQL, ACL de Databricks Apps) y corregir F2 con `SesionSqlRemota` sobre Statement Execution API.
-- Privilegios del service principal de la App mínimos y documentados por superficie.
+- Privilegios del service principal de la App documentados como recurso de despliegue del modo broker: rol **Workspace admin** y entitlements **Databricks SQL Access**, **Workspace Access** y **Consumer Access**.
 
 **Non-Goals:**
 
 - No construir la UI final (C9 permanece en hold hasta el GO).
 - No cambiar comportamiento ni contratos de la ruta CLI/lote.
-- No relajar el pre-flight ni la revalidación al confirmar; no conceder `workspace admin` al SP como configuración definitiva sin evaluar endurecimiento.
+- No relajar el pre-flight ni la revalidación al confirmar; cualquier propuesta de reducir los privilegios documentados del SP (rol Workspace admin o alguno de los entitlements Databricks SQL Access, Workspace Access o Consumer Access) se gestiona en un nuevo change de OpenSpec con evidencia, no como ajuste silencioso.
 
 ## Decisions
 
@@ -45,11 +45,14 @@ Grants UC con la credencial OBO del llamante mediante `SesionSqlRemota` (Stateme
 
 - *Alternativa: un único contexto con dos clientes intercambiables.* Descartada: facilitaría ejecutar con SP sin pasar por la validación OBO; los contextos separados hacen explícita la frontera.
 
-### D5 — Privilegios del SP como recurso de despliegue endurecible
+### D5 — Privilegios del SP de la App como recurso de despliegue documentado
 
-El spike se verifica con `workspace admin` asignado por el humano al SP de la App (vía rápida de cobertura total). Después se endurece por superficie y se documenta en `config/app_properties.json`/README: lectura SCIM, CAN_MANAGE por objeto de cómputo, y admin solo donde la plataforma lo exija (tokens, pendiente de verificación).
+El service principal de la Databricks App, en modo broker, recibe por asignación humana como recurso de despliegue el rol **Workspace admin** sobre el workspace objetivo y los entitlements **Databricks SQL Access**, **Workspace Access** y **Consumer Access**. La configuración queda documentada en `config/app_properties.json`, `databricks.yml` y el README. La autorización por llamante (D2) sigue siendo el único mecanismo que permite ejecutar acciones con esa identidad elevada: aunque el SP pueda hacerlo, nada se ejecuta sin validar la autoridad del llamante.
 
-- *Alternativa: admin permanente sin evaluar.* Descartada: maximiza el radio de impacto de cualquier bug de autorización.
+Cualquier intento de endurecer por superficie (por ejemplo, retirar Workspace admin para casos puntuales, suprimir un entitlement o cambiar a un SCIM con permisos menores) requiere un nuevo change de OpenSpec con evidencia; no se aplica como ajuste directo sobre el despliegue documentado.
+
+- *Alternativa: endurecimiento por superficie desde el primer despliegue.* Descartada: el humano ha decidido fijar como configuración documentada del modo broker la del SP con Workspace admin y los tres entitlements indicados; cualquier reducción posterior se trata como un change independiente.
+- *Alternativa: privilegios inferiores con elevación ad-hoc en tiempo de ejecución.* Descartada: introduce elevation paths no auditables y rompe la trazabilidad del SP como recurso de despliegue.
 
 ### D6 — Spike y gate propios antes de reanudar C9
 
@@ -68,13 +71,23 @@ Con GO, C9 retira el hold y revisa D3/D4/D6/D10 y los grupos 3–8 a cobertura t
 
 ## Migration Plan
 
-1. El humano asigna `workspace admin` al SP de la App (recurso de despliegue del spike).
+1. El humano asigna al SP de la App el rol Workspace admin y los entitlements Databricks SQL Access, Workspace Access y Consumer Access (recurso de despliegue del modo broker), y registra el procedimiento y el rollback (retirar los privilegios asignados) en este change. **(Hecho, 1.2 — ver registro abajo.)**
 2. Implementación TDD: `SesionSqlRemota`, composición broker y aislamiento.
 3. Redespliegue del spike y ejecución del gate con evidencia descargable.
-4. Endurecimiento de privilegios del SP y re-ejecución del gate.
-5. GO → reanudación de C9 con cobertura total. Rollback: retirar el admin al SP y conservar la evidencia; la ruta CLI/lote nunca se ve afectada.
+4. Verificación de la configuración documentada del SP (rol y entitlements efectivos) y re-ejecución del gate.
+5. GO → reanudación de C9 con cobertura total. Rollback: retirar el rol y los entitlements asignados al SP y conservar la evidencia; la ruta CLI/lote nunca se ve afectada.
+
+## Registro de la asignación del SP (tarea 1.2, acción humana)
+
+Ejecutada el 2026-11-26 por `andresmorera04@gmail.com` sobre la Databricks App `control-accesos-spike`:
+
+- Service principal identificado: `app-62644q control-accesos-spike`, id `71438630368150`, client_id `8be05e5d-0808-4698-a26f-1a5f7a4b63a0`.
+- Privilegios asignados (recurso de despliegue del modo broker, design D5): rol **Workspace admin** sobre el workspace objetivo y entitlements **Databricks SQL Access**, **Workspace Access** y **Consumer Access**.
+- Verificación posterior a la asignación: `databricks api get /api/2.0/apps/control-accesos-spike --profile andresFree` devuelve `app_status.state = RUNNING` ("App is running"), `compute_status.state = ACTIVE` y el último despliegue `SUCCEEDED`; la App quedó operativa tras la asignación.
+- **Rollback**: retirar del SP `app-62644q control-accesos-spike` el rol Workspace admin y los tres entitlements indicados (devolverlo a su estado previo al modo broker). La ruta CLI/lote no dependió nunca de estos privilegios, por lo que no se ve afectada.
 
 ## Open Questions
 
-- ¿El listado SCIM del workspace funciona con el SP sin admin (solo lectura)? Se mide en el endurecimiento D5.
-- ¿La Token Permissions API exige admin de workspace o de cuenta? Se verifica en el spike; si exige cuenta, se eleva antes de reanudar C9.
+- ¿La Token Permissions API exige admin de cuenta además del Workspace admin del workspace? Se verifica en el spike; si exige cuenta, se eleva antes de reanudar C9 como acción humana documentada y, si corresponde, como nuevo change de OpenSpec.
+- ¿Alguno de los entitlements documentados (Databricks SQL Access, Workspace Access o Consumer Access) resulta redundante o insuficiente para alguna superficie? Se verifica en el spike; cualquier ajuste se gestiona como nuevo change de OpenSpec con evidencia, sin modificación silenciosa.
+- **Hallazgo del gate broker (tarea 4.2) — "cluster" vs "compute" (RESUELTO)**: la API clásica `clusters.list()` solo devuelve cómputo all-purpose; en `andresFree` devuelve **0** (no hay clusters clásicos), por lo que las sondas `broker_*_cluster` quedan `no_disponible` (aceptable: no hay objeto que sondar). La superficie de cómputo real del workspace es `serverless-compute` (`TipoObjeto.COMPUTO_SERVERLESS`), que se añadió al spike y al conjunto completo del gate: `broker_serverless` lista 1 objeto (`2619240e-...`) y su ACL se lee (2 entradas) y escribe con restauración (`PUT` re-aplicado, `coincide=True`). Vocabulario a alinear en la UI: en Databricks "Compute" es el término paraguas de "Clusters (all-purpose)" y "Serverless compute"; en el código el dominio ya los distingue (`COMPUTO_CLASICO` → recurso `clusters`, `COMPUTO_SERVERLESS` → recurso `serverless-compute`).
