@@ -88,12 +88,22 @@ NOMBRE_ATRIBUTO_LIMITE_ITEMS_LOTE = "limite_items_por_lote"
 # configurable y no vacío.
 NOMBRE_ATRIBUTO_IDENTIFICADOR_TOKEN = "identificador_logico_uso_token"
 
+# Warehouse del SQL OBO (decisión humana 2026-11-27, design.md D13):
+# `IdWarehouse` es una cadena dinámica por entorno (vacía por defecto; cada
+# despliegue Free/Azure la fija) y el nombre de su variable de entorno.
+NOMBRE_ATRIBUTO_ID_WAREHOUSE = "id_warehouse"
+NOMBRE_ATRIBUTO_VARIABLE_ENTORNO_ID_WAREHOUSE = "variable_entorno_id_warehouse"
+VALOR_ESPERADO_VARIABLE_ENTORNO_ID_WAREHOUSE = "CONTROL_ACCESOS_ID_WAREHOUSE"
+
 # Mapa atributo -> valor de protocolo esperado (aserción exacta).
 ATRIBUTOS_CON_VALOR_DE_PROTOCOLO = {
     NOMBRE_ATRIBUTO_ENCABEZADO_TOKEN_OBO: VALOR_ESPERADO_ENCABEZADO_TOKEN_OBO,
     NOMBRE_ATRIBUTO_VARIABLE_ENTORNO_HOST: VALOR_ESPERADO_VARIABLE_ENTORNO_HOST,
     NOMBRE_ATRIBUTO_VARIABLE_ENTORNO_COMPUTE: (
         VALOR_ESPERADO_VARIABLE_ENTORNO_COMPUTE
+    ),
+    NOMBRE_ATRIBUTO_VARIABLE_ENTORNO_ID_WAREHOUSE: (
+        VALOR_ESPERADO_VARIABLE_ENTORNO_ID_WAREHOUSE
     ),
 }
 
@@ -251,6 +261,18 @@ def TestConfiguracionExponeAtributosDeLaUi():
     assert tamano_pagina <= limite_opciones, (
         f"'{NOMBRE_ATRIBUTO_TAMANO_PAGINA}' ({tamano_pagina}) no puede "
         f"superar '{NOMBRE_ATRIBUTO_LIMITE_OPCIONES}' ({limite_opciones})."
+    )
+
+
+def TestConfiguracionDeclaraIdWarehouseDinamico():
+    """IdWarehouse es una cadena dinámica por entorno (vacía por defecto)."""
+    configuracion = ConfiguracionApp.Cargar()
+
+    id_warehouse = configuracion.ObtenerAtributo(NOMBRE_ATRIBUTO_ID_WAREHOUSE)
+    assert isinstance(id_warehouse, str), (
+        f"'{NOMBRE_ATRIBUTO_ID_WAREHOUSE}' debe ser una cadena (vacía por "
+        f"defecto; el valor real lo fija cada entorno Free/Azure); se "
+        f"encontró: {id_warehouse!r}"
     )
 
 

@@ -148,8 +148,16 @@ def TestBundleDesplegableBrokerCoherente():
         )
 
 
+@pytest.mark.skip(
+    reason=(
+        "La App spike 'control-accesos-spike' quedó superseded por "
+        "'securitymanager' (despliegue de la vertical, C9 7.x). La evidencia "
+        "GO del gate broker ya está registrada en "
+        "results/app-broker-identidad-ejecucion/broker_evidencia.json."
+    )
+)
 def TestAppSpikeOperativa():
-    """La App spike existe en andresFree y está en ejecución."""
+    """La App spike existe en andresFree y está en ejecución (histórico/legacy)."""
     try:
         respuesta = EjecutarComandoCli(["get", RUTA_API_APP_SPIKE])
     except ErrorTransporteDatabricks as excepcion:

@@ -180,6 +180,64 @@ efectivos del llamante y su revalidación al confirmar (design.md D2 del change)
 Cualquier propuesta de reducirlos se gestiona como un change de OpenSpec
 separado con evidencia (spec `app-broker-grants`).
 
+## Despliegue de `securitymanager` (Databricks App, título `SecurityManager`)
+
+La interfaz se publica como Databricks App **`securitymanager`** (título de UI
+`SecurityManager`). Es ejecutable
+tanto en `andresFree` como en `andresAzureDev` (dominio real de producción); la
+configuración es dinámica por entorno a través de `config/app_properties.json`.
+
+### Dependencias
+
+- **Runtime** (`requirements.txt`): `streamlit` y `databricks-sdk`. **No** incluye
+  `databricks-connect` ni `pyspark` (corrección F2: el SQL remoto usa la
+  Statement Execution API con la credencial OBO).
+- **Desarrollo** (`requirements-dev.txt`): `pytest`, `pyspark`, `delta-spark` y
+  los pins compartidos (para la regresión de C1–C8). No incluye `-r requirements.txt`.
+
+### Ejecución local
+
+```bash
+source ~/.venv/bin/activate
+streamlit run app.py
+```
+
+Sin contexto de Databricks App (sin header `x-forwarded-access-token`) la
+composición falla con error controlado de identidad: la interfaz se muestra y
+deshabilita previsualización/ejecución.
+
+### Despliegue (bundle sync + apps create/deploy)
+
+```bash
+databricks bundle sync                              # sube el bundle desplegable a WSFS
+databricks apps create --profile <PERFIL> --forward-user-access-token \
+  --json '{"name":"securitymanager","user_api_scopes":["sql","apps","catalog.catalogs","catalog.schemas","catalog.tables","catalog.connections","workspace.workspace"]}'
+databricks apps deploy securitymanager --source-code-path /Workspace/Users/<usuario>/spike-control-accesos --profile <PERFIL>
+```
+
+> `apps create` no admite nombre posicional junto a `--json` (el nombre va en el JSON); `apps deploy` sí lleva el nombre posicional.
+
+> En Azure Databricks, la App **permanece detenida fuera de las ejecuciones de prueba** (regla de costos, D13): se arranca solo para correr pruebas y se detiene al terminar.
+
+### Scopes, recursos y configuración por entorno
+
+- **Scopes OBO de la App** (consentidos por el humano): `sql`, `apps`,
+  `catalog.catalogs`, `catalog.schemas`, `catalog.tables`,
+  `catalog.connections`, `workspace.workspace`.
+- **Recurso broker**: `Workspace admin` + entitlements (`databricks-sql-access`,
+  `workspace-access`, `workspace-consume`) en el service principal de la App
+  (ver sección *Privilegios del service principal del modo broker*).
+- **`IdWarehouse`** (`id_warehouse` + `variable_entorno_id_warehouse`
+  `CONTROL_ACCESOS_ID_WAREHOUSE`): id del SQL warehouse de ejecución del SQL
+  OBO, dinámico por entorno; el llamante necesita `CAN USE` sobre ese warehouse.
+
+### Rollback
+
+Retirar el `Workspace admin` y los entitlements del service principal, detener
+el despliegue (`databricks apps delete securitymanager`) y revertir el commit.
+Las tablas de bitácora permanecen; los grants/ACLs de prueba se revocan/fixture
+(capa integral).
+
 ## Licencia
 
 Ver [LICENSE](LICENSE).

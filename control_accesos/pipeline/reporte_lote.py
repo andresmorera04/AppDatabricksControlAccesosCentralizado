@@ -20,8 +20,6 @@ El camino 1 a 1 no requiere agregación: solo se invoca en el camino de lote.
 from dataclasses import dataclass
 from typing import Optional
 
-from pyspark.sql import functions as F
-
 from control_accesos.dominio.enumeraciones import EstadoItem
 from control_accesos.pipeline.reportador import ReporteGrant
 
@@ -102,6 +100,10 @@ class AgregadorReporteLote:
         )
 
         # Agregar los totales por estado con groupBy/agg (funciones masivas).
+        # Import perezoso: pyspark solo existe en la ruta CLI/lote, no en el
+        # runtime de la Databricks App (regla D5: el runtime no instala pyspark).
+        from pyspark.sql import functions as F
+
         totales = marco.groupBy("estado").agg(F.count("*").alias("cantidad")).collect()
 
         # Construir el mapa estado → cantidad, con los tres estados presentes.
