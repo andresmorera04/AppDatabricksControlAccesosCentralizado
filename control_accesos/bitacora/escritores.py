@@ -23,25 +23,19 @@ fila sobre el DataFrame.
 """
 
 import sys
-import traceback
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 
-from control_accesos.bitacora.modelos import (
-    DetalleError,
-    EventoBitacora,
-    RegistroError,
+from control_accesos.bitacora.constructores import (
+    ConstruirRegistroError,
+    MARCA_TRAZA_NO_DISPONIBLE,
 )
+from control_accesos.bitacora.modelos import EventoBitacora
 from control_accesos.persistencia.capa_persistencia import CapaPersistencia
 from control_accesos.persistencia.ddl import (
     DEFINICION_BITACORA_ERRORES,
     DEFINICION_BITACORA_EVENTOS,
 )
-
-# Marca explícita del campo traza cuando la excepción capturada nunca se
-# lanzó (no tiene traceback real). Se declara como constante para no repetir
-# literales y para que la prueba pueda fijar este comportamiento.
-MARCA_TRAZA_NO_DISPONIBLE = "(sin traza disponible: la excepcion no se lanzo)"
 
 
 class EscritorBitacora:
@@ -311,10 +305,11 @@ class BitacoraErrores(EscritorBitacora):
                           marca_tiempo=None):
         """Construye el modelo `RegistroError` desde la excepción capturada.
 
-        Extrae el detalle STRUCT con el máximo detalle disponible: tipo de la
-        excepción, su mensaje, la traza formateada (o la marca explícita de
-        traza no disponible si la excepción se construyó sin lanzarse) y el
-        contexto aportado.
+        Delega en el constructor compartido Spark-free
+        (`bitacora.constructores.ConstruirRegistroError`), única fuente de la
+        regla de extracción del detalle STRUCT (tipo, mensaje, traza y
+        contexto), para no duplicarla entre el escritor Spark y el restaurante
+        REST de la App (design.md D5/D10).
 
         Args:
             excepcion (BaseException): excepción capturada por el try/except.
@@ -327,27 +322,10 @@ class BitacoraErrores(EscritorBitacora):
         Returns:
             RegistroError: modelo listo para registrarse (no escribe nada).
         """
-        # Traza completa formateada; si la excepción se construyó sin lanzarse
-        # (sin __traceback__), se deja constancia explícita en lugar de un
-        # vacío que ocultaría el hecho.
-        if excepcion.__traceback__ is not None:
-            traza = "".join(
-                traceback.format_exception(
-                    type(excepcion), excepcion, excepcion.__traceback__
-                )
-            )
-        else:
-            traza = MARCA_TRAZA_NO_DISPONIBLE
-
-        detalle = DetalleError(
-            tipo_excepcion=type(excepcion).__name__,
-            mensaje=str(excepcion),
-            traza=traza,
-            contexto=str(contexto),
-        )
-        return RegistroError(
+        return ConstruirRegistroError(
+            excepcion=excepcion,
             modulo=modulo,
-            detalle=detalle,
             usuario=usuario,
-            marca_tiempo=marca_tiempo or datetime.now(),
+            contexto=contexto,
+            marca_tiempo=marca_tiempo,
         )

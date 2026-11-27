@@ -20,7 +20,7 @@ import sys
 from dataclasses import asdict
 from datetime import datetime
 
-from control_accesos.bitacora.escritores import BitacoraErrores as _ErrorBase
+from control_accesos.bitacora.constructores import ConstruirRegistroError
 from control_accesos.bitacora.modelos import EventoBitacora
 from control_accesos.persistencia.ddl import (
     DEFINICION_BITACORA_ERRORES,
@@ -216,7 +216,7 @@ class BitacoraErroresRemota(EscritorBitacoraSqlRemoto):
     def Registrar(self, excepcion, modulo, usuario=None, contexto="",
                   marca_tiempo=None):
         """Construye y registra un error capturado por la Statement Execution API."""
-        registro = _ErrorBase.ConstruirRegistro(
+        registro = ConstruirRegistroError(
             excepcion=excepcion,
             modulo=modulo,
             usuario=usuario,

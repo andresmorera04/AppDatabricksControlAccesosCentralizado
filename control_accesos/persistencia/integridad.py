@@ -21,8 +21,6 @@ registro del lote (el verificador se invoca siempre antes que la escritura).
 
 from dataclasses import dataclass
 
-from pyspark.sql import functions as funciones_spark
-
 from control_accesos.persistencia.errores import ErrorIntegridad
 
 # Límite de llaves infractoras incluidas en el mensaje de error: suficiente
@@ -120,6 +118,9 @@ class VerificadorIntegridad:
 
         columnas_clave = list(claves_primarias)
 
+        # Import perezoso: pyspark no existe en el runtime de la App (D5).
+        from pyspark.sql import functions as funciones_spark
+
         # 1) Unicidad DENTRO del lote: agrupar por la clave y contar; cualquier
         #    grupo con más de una fila es una llave duplicada.
         duplicadas_en_lote = (
@@ -186,6 +187,9 @@ class VerificadorIntegridad:
         for referencia in referencias_foraneas:
             columnas_hija = list(referencia.columnas_hija)
             columnas_padre = list(referencia.columnas_padre)
+
+            # Import perezoso: pyspark no existe en el runtime de la App (D5).
+            from pyspark.sql import functions as funciones_spark
 
             # Se conservan solo las filas con referencia no nula en TODAS las
             # columnas hijas (nulo = sin referencia, no es violación).
