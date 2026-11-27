@@ -31,9 +31,12 @@ Reglas de seguridad que fija esta composición:
   composición: el contexto existe con `identidad=None`, el fallo queda
   registrado por el servicio de C3 y el controlador deshabilita
   previsualización y ejecución (spec `grant-management-ui`);
-- el warehouse para el SQL OBO se descubre con la credencial del llamante
-  (design.md D3, precondición operativa); sin warehouse usable la composición
-  falla con error controlado y sin el token;
+- el warehouse para el SQL OBO se resuelve por orden: la propiedad
+  `IdWarehouse` de la configuración (decisión humana 2026-11-27, dinámica por
+  entorno), la variable de entorno correspondiente y, como último recurso, el
+  descubrimiento con la credencial del llamante (design.md D3, precondición
+  operativa); sin warehouse usable la composición falla con error controlado
+  y sin el token;
 - las bitácoras de eventos/errores se inyectan desde fuera (composición de
   auditoría con identidad de App, design.md D10, tarea 5.2): esta fábrica no
   las construye ni decide su credencial.
@@ -73,6 +76,13 @@ from control_accesos.ui.proveedor_identidad_app import (
 # (convención de los canales reales y del proveedor OBO).
 MODULO_FABRICA_CONTEXTO = "ui.fabrica_contexto"
 
+# Atributos de configuración del warehouse del SQL OBO (decisión humana
+# 2026-11-27, design.md D13): `id_warehouse` es el id dinámico por entorno y
+# `variable_entorno_id_warehouse` el nombre de la variable de entorno que lo
+# suple cuando la propiedad está vacía.
+NOMBRE_ATRIBUTO_ID_WAREHOUSE = "id_warehouse"
+NOMBRE_ATRIBUTO_VARIABLE_ENTORNO_ID_WAREHOUSE = "variable_entorno_id_warehouse"
+
 
 def DescubrirWarehouseServerless(cliente):
     """Descubre el id de un SQL warehouse con cómputo serverless (OBO).
@@ -97,6 +107,21 @@ def DescubrirWarehouseServerless(cliente):
         if getattr(warehouse, "enable_serverless_compute", False):
             return getattr(warehouse, "id", None)
     return None
+
+
+def _ValorNoVacio(valor):
+    """Normaliza un valor de configuración/entorno a texto útil o None.
+
+    Args:
+        valor: valor leído de configuración o del entorno (str o None).
+
+    Returns:
+        str | None: el texto sin espacios, o None si está vacío.
+    """
+    if valor is None:
+        return None
+    texto = str(valor).strip()
+    return texto or None
 
 
 def CrearSesionSqlRemota(host, token, warehouse_id, fabrica_cliente=None):
@@ -313,7 +338,7 @@ class FabricaContextoLlamante:
         host = LeerHostWorkspace(self._entorno, self._configuracion)
 
         cliente_workspace = self._CrearClienteWorkspace(host, token)
-        warehouse_id = self._DescubrirWarehouse(cliente_workspace)
+        warehouse_id = self._ResolverWarehouse(cliente_workspace)
 
         # Proveedor y servicio de C3: la identidad se resuelve una vez por
         # acción y queda cacheada en el servicio del contexto.
@@ -395,22 +420,42 @@ class FabricaContextoLlamante:
                 f"del workspace con la credencial del llamante."
             ) from excepcion
 
-    def _DescubrirWarehouse(self, cliente):
-        """Descubre el SQL warehouse serverless con la credencial del llamante.
+    def _ResolverWarehouse(self, cliente):
+        """Resuelve el id del SQL warehouse para el SQL OBO (design.md D13).
+
+        Orden de resolución (decisión humana 2026-11-27): la propiedad
+        `IdWarehouse` de la configuración; si está vacía, la variable de
+        entorno `variable_entorno_id_warehouse`; y, como último recurso
+        dinámico, el descubrimiento con la credencial del llamante (conserva
+        el arranque de Free Edition sin id preconfigurado).
 
         Args:
-            cliente (WorkspaceClient): cliente OBO del contexto.
+            cliente (WorkspaceClient): cliente OBO del contexto (solo se usa
+                en el último recurso de descubrimiento).
 
         Returns:
-            str: id del warehouse serverless a usar para el SQL OBO.
+            str: id del warehouse a usar para el SQL OBO.
 
         Raises:
-            ErrorAutenticacionLlamante: si el descubrimiento falla o no hay
-                warehouse usable (precondición operativa, design.md D3); el
+            ErrorAutenticacionLlamante: si ninguna fuente aporta un warehouse
+                usable (precondición operativa) o el descubrimiento falla; el
                 mensaje nunca expone el token.
         """
+        id_configuracion = _ValorNoVacio(
+            self._configuracion.ObtenerAtributo(NOMBRE_ATRIBUTO_ID_WAREHOUSE)
+        )
+        if id_configuracion:
+            return id_configuracion
+
+        nombre_variable = self._configuracion.ObtenerAtributo(
+            NOMBRE_ATRIBUTO_VARIABLE_ENTORNO_ID_WAREHOUSE
+        )
+        id_entorno = _ValorNoVacio(self._entorno.get(nombre_variable))
+        if id_entorno:
+            return id_entorno
+
         try:
-            warehouse_id = self._descubridor_warehouse(cliente)
+            warehouse_id = _ValorNoVacio(self._descubridor_warehouse(cliente))
         except Exception as excepcion:  # noqa: BLE001 - fallo del transporte
             raise ErrorAutenticacionLlamante(
                 f"[{MODULO_FABRICA_CONTEXTO}] No se pudo descubrir un SQL "
@@ -419,8 +464,10 @@ class FabricaContextoLlamante:
 
         if not warehouse_id:
             raise ErrorAutenticacionLlamante(
-                f"[{MODULO_FABRICA_CONTEXTO}] No hay un SQL warehouse "
-                f"serverless usable para el SQL OBO del llamante (precondición "
-                f"operativa, design.md D3)."
+                f"[{MODULO_FABRICA_CONTEXTO}] No hay un SQL warehouse usable "
+                f"para el SQL OBO del llamante: configure la propiedad "
+                f"'IdWarehouse' o su variable de entorno, o disponga de un "
+                f"warehouse serverless descubrible (precondición operativa, "
+                f"design.md D3/D13)."
             )
         return warehouse_id

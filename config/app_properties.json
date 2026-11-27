@@ -3,6 +3,8 @@
   "nombre_encabezado_token_obo": "x-forwarded-access-token",
   "variable_entorno_host_workspace": "DATABRICKS_HOST",
   "variable_entorno_compute_serverless": "DATABRICKS_SERVERLESS_COMPUTE_ID",
+  "id_warehouse": "",
+  "variable_entorno_id_warehouse": "CONTROL_ACCESOS_ID_WAREHOUSE",
   "limite_opciones_descubrimiento": 500,
   "tamano_pagina_descubrimiento": 100,
   "limite_items_por_lote": 200,

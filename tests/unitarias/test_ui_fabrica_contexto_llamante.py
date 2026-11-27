@@ -163,6 +163,21 @@ class DescubridorWarehouseFalso:
         return self._warehouse_id
 
 
+class ConfiguracionFalsa:
+    """Configuración falsa con las claves que consume la fábrica (IdWarehouse)."""
+
+    def __init__(self, id_warehouse=""):
+        self._atributos = {
+            "nombre_encabezado_token_obo": "x-forwarded-access-token",
+            "variable_entorno_host_workspace": "DATABRICKS_HOST",
+            "id_warehouse": id_warehouse,
+            "variable_entorno_id_warehouse": "CONTROL_ACCESOS_ID_WAREHOUSE",
+        }
+
+    def ObtenerAtributo(self, nombre):
+        return self._atributos[nombre]
+
+
 class RegistradorErroresFalso:
     """Doble de la bitácora de errores que registra las llamadas."""
 
@@ -389,6 +404,54 @@ def TestWarehouseNoDescubiertoImpideLaComposicion():
 
     assert "warehouse" in str(informacion.value)
     assert TOKEN_OBO_UNO not in str(informacion.value)
+
+
+def TestFabricaUsaIdWarehouseDeLaConfiguracion():
+    """La propiedad IdWarehouse manda: no se descubre si ya está configurada."""
+    current_user = CurrentUserFalso(registro=UsuarioScimFalso())
+    fabrica_clientes = FabricaClienteFalsa(current_user=current_user)
+    descubridor = DescubridorWarehouseFalso(warehouse_id="no-debe-usarse")
+
+    fabrica = FabricaContextoLlamante(
+        acceso_encabezados=lambda: {NOMBRE_ENCABEZADO_TOKEN: TOKEN_OBO_UNO},
+        fabrica_cliente_workspace=fabrica_clientes,
+        descubridor_warehouse=descubridor,
+        configuracion=ConfiguracionFalsa(id_warehouse=WAREHOUSE_ID),
+        entorno={NOMBRE_VARIABLE_HOST: HOST_WORKSPACE},
+    )
+
+    contexto = fabrica.CrearContexto()
+
+    assert contexto.warehouse_id == WAREHOUSE_ID
+    assert descubridor.llamadas == [], (
+        "Con IdWarehouse configurado la fábrica no debe descubrir el warehouse "
+        "por la API (decisión 2026-11-27: la propiedad manda)."
+    )
+
+
+def TestFabricaUsaIdWarehouseDeLaVariableDeEntorno():
+    """IdWarehouse vacío en configuración se suple por la variable de entorno."""
+    current_user = CurrentUserFalso(registro=UsuarioScimFalso())
+    fabrica_clientes = FabricaClienteFalsa(current_user=current_user)
+    descubridor = DescubridorWarehouseFalso(warehouse_id="no-debe-usarse")
+
+    fabrica = FabricaContextoLlamante(
+        acceso_encabezados=lambda: {NOMBRE_ENCABEZADO_TOKEN: TOKEN_OBO_UNO},
+        fabrica_cliente_workspace=fabrica_clientes,
+        descubridor_warehouse=descubridor,
+        configuracion=ConfiguracionFalsa(id_warehouse=""),
+        entorno={
+            NOMBRE_VARIABLE_HOST: HOST_WORKSPACE,
+            "CONTROL_ACCESOS_ID_WAREHOUSE": WAREHOUSE_ID,
+        },
+    )
+
+    contexto = fabrica.CrearContexto()
+
+    assert contexto.warehouse_id == WAREHOUSE_ID
+    assert descubridor.llamadas == [], (
+        "Con la variable de entorno IdWarehouse tampoco se descubre por API."
+    )
 
 
 def TestFalloDeDescubrimientoWarehouseSeTraduceSinExponerToken():
