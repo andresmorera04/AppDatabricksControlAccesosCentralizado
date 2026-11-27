@@ -1,29 +1,32 @@
-"""Prueba unitaria de la fábrica del contexto OBO por acción (design.md D3).
+"""Prueba unitaria de la fábrica del contexto OBO por acción (design.md D3, F2).
 
-Change C9 (`web-ui-minimalista`), capability `grant-management-ui`.
+Change `app-broker-identidad-ejecucion`, capability `app-broker-grants`.
 
 Contrato que fija esta prueba:
 
 - la fábrica compone, PARA CADA ACCIÓN, proveedor OBO, servicio de identidad
-  (C3), cliente del workspace, sesión Spark remota, canales reales de ambos
-  planos, resolutor de privilegios y pipeline completo;
-- el cliente SDK y la sesión Spark reciben el MISMO token OBO del llamante y
-  el host del workspace; nunca el token del service principal de la App
-  (`DATABRICKS_TOKEN` del entorno), ni aunque exista: no hay fallback
-  elevado;
+  (C3), cliente del workspace, sesión SQL remota (Statement Execution API),
+  canales reales de ambos planos, resolutor de privilegios y pipeline completo
+  con el agregador de lote en Python (sin SparkSession: corrección F2);
+- el cliente SDK recibe el MISMO token OBO del llamante y el host del
+  workspace; nunca el token del service principal de la App
+  (`DATABRICKS_TOKEN` del entorno), ni aunque exista: no hay fallback elevado;
+- el warehouse serverless para el SQL OBO se DESCUBRE con la credencial del
+  llamante (precondición operativa, design.md D3); sin warehouse la composición
+  falla con error controlado y sin el token; un fallo del descubrimiento se
+  traduce sin propagar la causa con el secreto;
 - cada `CrearContexto()` construye objetos nuevos: dos acciones —o dos
-  llamantes— no comparten cliente, sesión, canales, resolutor ni pipeline;
-- token OBO ausente -> `ErrorContextoLlamanteAusente` sin construir cliente
-  ni sesión; host ausente o fallo de Connect -> `ErrorAutenticacionLlamante`
-  con mensaje limpio (sin token) y causa encadenada;
-- la identidad no resuelta (SCIM falla) NO impide la composición: el
-  contexto existe con `identidad=None` y el controlador decide deshabilitar
-  el flujo (spec - "Contexto o token no válido");
-- `Cerrar()` detiene la sesión Spark exactamente una vez y degrada de forma
-  controlada si el cierre falla.
+  llamantes— no comparten cliente, canales, resolutor ni pipeline;
+- token OBO ausente -> `ErrorContextoLlamanteAusente` sin construir cliente;
+  host ausente o fallo de cliente -> `ErrorAutenticacionLlamante` con mensaje
+  limpio (sin token) y causa encadenada;
+- la identidad no resuelta (SCIM falla) NO impide la composición: el contexto
+  existe con `identidad=None` y el controlador decide deshabilitar el flujo
+  (spec - "Contexto o token no válido");
+- `Cerrar()` es idempotente y sin recurso que liberar (ya no hay SparkSession).
 
-Todos los colaboradores externos son dobles inyectados: sin red, sin
-Streamlit y sin Databricks Connect local (prohibido en ~/.venv, design.md D5).
+Todos los colaboradores externos son dobles inyectados: sin red, sin Streamlit
+y sin `databricks-connect` (retirado del runtime por la corrección F2).
 """
 
 from dataclasses import dataclass
@@ -68,6 +71,7 @@ TOKEN_OBO_UNO = "dapiLLAMANTE_UNO_0123456789"
 TOKEN_OBO_DOS = "dapiLLAMANTE_DOS_987654321"
 TOKEN_APP_SP = "dapiAPP_SERVICE_PRINCIPAL_no_usar"
 HOST_WORKSPACE = "https://adb-1234567890.1.azuredatabricks.net"
+WAREHOUSE_ID = "abcdef1234567890abcdef12"
 USUARIO_UNO = "usuario.uno@example.com"
 USUARIO_DOS = "usuario.dos@example.com"
 
@@ -102,14 +106,31 @@ class CurrentUserFalso:
         return self._registro
 
 
+class StatementExecutionFalso:
+    """Doble del transporte `statement_execution` (puertos de SesionSqlRemota).
+
+    La fábrica solo construye la sesión remota y la valida; ninguna sentencia
+    se ejecuta durante la composición, por lo que el doble solo necesita
+    exponer los dos métodos que `SesionSqlRemota` exige en su constructor.
+    """
+
+    def execute_statement(self, statement=None, warehouse_id=None, wait_timeout=None, **extra):
+        return None
+
+    def get_statement(self, statement_id):
+        return None
+
+
 class ClienteWorkspaceFalso:
-    """Doble del `WorkspaceClient`: identidad + puertos del canal SDK."""
+    """Doble del `WorkspaceClient`: identidad + puertos del canal y SQL remoto."""
 
     def __init__(self, current_user):
         self.current_user = current_user
         # Atributos que exige el adaptador ClientePermisosSdk (C7).
         self.permissions = object()
         self.api_client = object()
+        # Transporte que exige SesionSqlRemota (F2).
+        self.statement_execution = StatementExecutionFalso()
 
 
 class FabricaClienteFalsa:
@@ -127,40 +148,19 @@ class FabricaClienteFalsa:
         return ClienteWorkspaceFalso(self._current_user)
 
 
-class SesionSparkFalsa:
-    """Doble de la sesión Spark remota con `sql()` y `stop()`."""
+class DescubridorWarehouseFalso:
+    """Descubridor falso de SQL warehouse serverless que registra al cliente."""
 
-    def __init__(self, excepcion_stop=None):
-        self.excepcion_stop = excepcion_stop
-        self.detenciones = 0
-
-    def sql(self, sentencia):
-        # La fábrica solo necesita que la sesión exponga `sql` (adaptador
-        # SesionSparkSql); las pruebas de canales cubren su comportamiento.
-        return []
-
-    def stop(self):
-        self.detenciones += 1
-        if self.excepcion_stop is not None:
-            raise self.excepcion_stop
-
-
-class FabricaSesionFalsa:
-    """Fábrica de sesiones Spark falsas que registra (host, token)."""
-
-    def __init__(self, excepcion=None, excepcion_stop=None):
+    def __init__(self, warehouse_id=WAREHOUSE_ID, excepcion=None):
+        self._warehouse_id = warehouse_id
         self._excepcion = excepcion
-        self._excepcion_stop = excepcion_stop
         self.llamadas = []
-        self.sesiones = []
 
-    def __call__(self, host, token):
-        self.llamadas.append((host, token))
+    def __call__(self, cliente):
+        self.llamadas.append(cliente)
         if self._excepcion is not None:
             raise self._excepcion
-        sesion = SesionSparkFalsa(excepcion_stop=self._excepcion_stop)
-        self.sesiones.append(sesion)
-        return sesion
+        return self._warehouse_id
 
 
 class RegistradorErroresFalso:
@@ -185,41 +185,39 @@ def _CrearFabrica(
     entorno=None,
     current_user=None,
     excepcion_cliente=None,
-    excepcion_sesion=None,
-    excepcion_stop=None,
+    descubridor_warehouse=None,
     registrador_errores=None,
     registrador_eventos=None,
 ):
     """Construye la fábrica con dobles inyectados.
 
     Returns:
-        tuple: (fábrica, fábrica de clientes falsa, fábrica de sesiones falsa).
+        tuple: (fábrica, fábrica de clientes falsa, descubridor de warehouse).
     """
     fabrica_clientes = FabricaClienteFalsa(
         current_user=current_user, excepcion=excepcion_cliente
     )
-    fabrica_sesiones = FabricaSesionFalsa(
-        excepcion=excepcion_sesion, excepcion_stop=excepcion_stop
-    )
+    if descubridor_warehouse is None:
+        descubridor_warehouse = DescubridorWarehouseFalso()
     entorno_efectivo = {NOMBRE_VARIABLE_HOST: HOST_WORKSPACE}
     if entorno is not None:
         entorno_efectivo = dict(entorno)
     fabrica = FabricaContextoLlamante(
         acceso_encabezados=lambda: dict(encabezados or {}),
         fabrica_cliente_workspace=fabrica_clientes,
-        fabrica_sesion_spark=fabrica_sesiones,
+        descubridor_warehouse=descubridor_warehouse,
         configuracion=CONFIGURACION_PROYECTO,
         entorno=entorno_efectivo,
         registrador_eventos=registrador_eventos,
         registrador_errores=registrador_errores,
     )
-    return fabrica, fabrica_clientes, fabrica_sesiones
+    return fabrica, fabrica_clientes, descubridor_warehouse
 
 
 def TestContextoComponeDependenciasConElMismoTokenObo():
-    """SDK y sesión Spark reciben host y token del mismo llamante."""
+    """Cliente y sesión SQL reciben host y token del mismo llamante."""
     current_user = CurrentUserFalso(registro=UsuarioScimFalso())
-    fabrica, fabrica_clientes, fabrica_sesiones = _CrearFabrica(
+    fabrica, fabrica_clientes, descubridor = _CrearFabrica(
         encabezados={NOMBRE_ENCABEZADO_TOKEN: TOKEN_OBO_UNO},
         entorno={
             NOMBRE_VARIABLE_HOST: HOST_WORKSPACE,
@@ -244,8 +242,9 @@ def TestContextoComponeDependenciasConElMismoTokenObo():
     assert contexto.identidad is not None
     assert contexto.identidad.principal.identificador == USUARIO_UNO
 
-    # La sesión Spark se construyó una vez con host y token OBO.
-    assert fabrica_sesiones.llamadas == [(HOST_WORKSPACE, TOKEN_OBO_UNO)]
+    # El warehouse serverless se descubrió con el cliente del llamante.
+    assert contexto.warehouse_id == WAREHOUSE_ID
+    assert len(descubridor.llamadas) == 1
 
     # Todos los clientes construidos (el del contexto y el del proveedor al
     # resolver la identidad) usan el mismo host y el mismo token OBO.
@@ -258,7 +257,7 @@ def TestContextoComponeDependenciasConElMismoTokenObo():
 def TestNuncaUsaElTokenDelServicePrincipalDeLaApp():
     """DATABRICKS_TOKEN del entorno jamás alimenta las operaciones OBO."""
     current_user = CurrentUserFalso(registro=UsuarioScimFalso())
-    fabrica, fabrica_clientes, fabrica_sesiones = _CrearFabrica(
+    fabrica, fabrica_clientes, _ = _CrearFabrica(
         encabezados={NOMBRE_ENCABEZADO_TOKEN: TOKEN_OBO_UNO},
         entorno={
             NOMBRE_VARIABLE_HOST: HOST_WORKSPACE,
@@ -269,10 +268,7 @@ def TestNuncaUsaElTokenDelServicePrincipalDeLaApp():
 
     fabrica.CrearContexto()
 
-    tokens_usados = [
-        token
-        for _, token in fabrica_clientes.llamadas + fabrica_sesiones.llamadas
-    ]
+    tokens_usados = [token for _, token in fabrica_clientes.llamadas]
     assert TOKEN_APP_SP not in tokens_usados, (
         "Ninguna operación del llamante puede usar la credencial propia de "
         "la App: no hay fallback elevado (design.md D3)."
@@ -282,7 +278,7 @@ def TestNuncaUsaElTokenDelServicePrincipalDeLaApp():
 def TestCadaAccionConstruyeDependenciasNuevas():
     """Dos acciones sucesivas no comparten ningún objeto mutable."""
     current_user = CurrentUserFalso(registro=UsuarioScimFalso())
-    fabrica, _, fabrica_sesiones = _CrearFabrica(
+    fabrica, _, descubridor = _CrearFabrica(
         encabezados={NOMBRE_ENCABEZADO_TOKEN: TOKEN_OBO_UNO},
         current_user=current_user,
     )
@@ -293,13 +289,12 @@ def TestCadaAccionConstruyeDependenciasNuevas():
     assert primero.proveedor is not segundo.proveedor
     assert primero.servicio_identidad is not segundo.servicio_identidad
     assert primero.cliente_workspace is not segundo.cliente_workspace
-    assert primero.sesion_spark is not segundo.sesion_spark
     assert primero.canal_datos is not segundo.canal_datos
     assert primero.canal_control is not segundo.canal_control
     assert primero.resolutor is not segundo.resolutor
     assert primero.pipeline is not segundo.pipeline
-    assert len(fabrica_sesiones.llamadas) == 2, (
-        "La fábrica no cachea sesiones entre acciones (design.md D3)."
+    assert len(descubridor.llamadas) == 2, (
+        "La fábrica no cachea el warehouse entre acciones (design.md D3)."
     )
 
 
@@ -322,11 +317,11 @@ def TestDosLlamantesQuedanAislados():
     fabrica_clientes = FabricaClienteFalsa(
         current_user=CurrentUserPorToken()
     )
-    fabrica_sesiones = FabricaSesionFalsa()
+    descubridor = DescubridorWarehouseFalso()
     fabrica = FabricaContextoLlamante(
         acceso_encabezados=lambda: dict(encabezados_actuales),
         fabrica_cliente_workspace=fabrica_clientes,
-        fabrica_sesion_spark=fabrica_sesiones,
+        descubridor_warehouse=descubridor,
         configuracion=CONFIGURACION_PROYECTO,
         entorno={NOMBRE_VARIABLE_HOST: HOST_WORKSPACE},
     )
@@ -338,16 +333,17 @@ def TestDosLlamantesQuedanAislados():
     assert contexto_uno.identidad.principal.identificador == USUARIO_UNO
     assert contexto_dos.identidad.principal.identificador == USUARIO_DOS
     assert contexto_uno.pipeline is not contexto_dos.pipeline
-    assert contexto_uno.sesion_spark is not contexto_dos.sesion_spark
+    assert contexto_uno.canal_datos is not contexto_dos.canal_datos
 
     # Cada composición usó el token vigente: la primera nunca vio el segundo.
-    tokens_por_sesion = [token for _, token in fabrica_sesiones.llamadas]
-    assert tokens_por_sesion == [TOKEN_OBO_UNO, TOKEN_OBO_DOS]
+    tokens_usados = [token for _, token in fabrica_clientes.llamadas]
+    assert TOKEN_OBO_UNO in tokens_usados
+    assert TOKEN_OBO_DOS in tokens_usados
 
 
 def TestTokenAusenteImpideLaComposicion():
-    """Sin header OBO no se construye cliente ni sesión alguna."""
-    fabrica, fabrica_clientes, fabrica_sesiones = _CrearFabrica(
+    """Sin header OBO no se construye cliente alguna."""
+    fabrica, fabrica_clientes, descubridor = _CrearFabrica(
         encabezados={},
         entorno={
             NOMBRE_VARIABLE_HOST: HOST_WORKSPACE,
@@ -359,15 +355,15 @@ def TestTokenAusenteImpideLaComposicion():
         fabrica.CrearContexto()
 
     assert fabrica_clientes.llamadas == []
-    assert fabrica_sesiones.llamadas == [], (
-        "Sin token del llamante no se establece ninguna sesión, ni siquiera "
-        "con credenciales de la App."
+    assert descubridor.llamadas == [], (
+        "Sin token del llamante no se descubre warehouse, ni siquiera con "
+        "credenciales de la App."
     )
 
 
 def TestHostAusenteImpideLaComposicion():
     """Entorno sin host del workspace -> ErrorAutenticacionLlamante."""
-    fabrica, fabrica_clientes, fabrica_sesiones = _CrearFabrica(
+    fabrica, fabrica_clientes, descubridor = _CrearFabrica(
         encabezados={NOMBRE_ENCABEZADO_TOKEN: TOKEN_OBO_UNO},
         entorno={},
     )
@@ -378,14 +374,30 @@ def TestHostAusenteImpideLaComposicion():
     assert NOMBRE_VARIABLE_HOST in str(informacion.value)
     assert TOKEN_OBO_UNO not in str(informacion.value)
     assert fabrica_clientes.llamadas == []
-    assert fabrica_sesiones.llamadas == []
+    assert descubridor.llamadas == []
 
 
-def TestFalloDeSesionSparkSeTraduceSinExponerToken():
-    """Connect falla -> ErrorAutenticacionLlamante limpio con causa."""
+def TestWarehouseNoDescubiertoImpideLaComposicion():
+    """Sin warehouse serverless usable no hay SQL OBO: error limpio."""
+    fabrica, fabrica_clientes, descubridor = _CrearFabrica(
+        encabezados={NOMBRE_ENCABEZADO_TOKEN: TOKEN_OBO_UNO},
+        descubridor_warehouse=DescubridorWarehouseFalso(warehouse_id=None),
+    )
+
+    with pytest.raises(ErrorAutenticacionLlamante) as informacion:
+        fabrica.CrearContexto()
+
+    assert "warehouse" in str(informacion.value)
+    assert TOKEN_OBO_UNO not in str(informacion.value)
+
+
+def TestFalloDeDescubrimientoWarehouseSeTraduceSinExponerToken():
+    """Un fallo del descubrimiento se traduce con causa encadenada y sin token."""
     fabrica, _, _ = _CrearFabrica(
         encabezados={NOMBRE_ENCABEZADO_TOKEN: TOKEN_OBO_UNO},
-        excepcion_sesion=RuntimeError("databricks-connect no disponible"),
+        descubridor_warehouse=DescubridorWarehouseFalso(
+            excepcion=RuntimeError("warehouses API sin scope sql")
+        ),
     )
 
     with pytest.raises(ErrorAutenticacionLlamante) as informacion:
@@ -417,39 +429,18 @@ def TestIdentidadNoResueltaNoImpideLaComposicion():
     assert isinstance(contexto.pipeline, PipelineGrants)
 
 
-def TestCerrarDetieneLaSesionUnaSolaVez():
-    """Cerrar() es idempotente: un único stop() por contexto."""
+def TestCerrarEsIdempotente():
+    """Cerrar() no libera recurso alguno y nunca lanza (sin Spark, F2)."""
     current_user = CurrentUserFalso(registro=UsuarioScimFalso())
-    fabrica, _, fabrica_sesiones = _CrearFabrica(
-        encabezados={NOMBRE_ENCABEZADO_TOKEN: TOKEN_OBO_UNO},
-        current_user=current_user,
-    )
-
-    contexto = fabrica.CrearContexto()
-    contexto.Cerrar()
-    contexto.Cerrar()
-
-    assert fabrica_sesiones.sesiones[0].detenciones == 1
-
-
-def TestCerrarDegradaControladamenteSiStopFalla():
-    """Un stop() fallido no propaga la excepción al controlador."""
-    current_user = CurrentUserFalso(registro=UsuarioScimFalso())
-    registrador_errores = RegistradorErroresFalso()
     fabrica, _, _ = _CrearFabrica(
         encabezados={NOMBRE_ENCABEZADO_TOKEN: TOKEN_OBO_UNO},
         current_user=current_user,
-        excepcion_stop=RuntimeError("sesión ya terminada"),
-        registrador_errores=registrador_errores,
     )
 
     contexto = fabrica.CrearContexto()
-    contexto.Cerrar()  # no debe lanzar
-
-    # El fallo de cierre quedó registrado con el usuario OBO cuando existe.
-    assert registrador_errores.llamadas
-    _, _, usuario, _ = registrador_errores.llamadas[-1]
-    assert usuario == USUARIO_UNO
+    # Dos llamadas consecutivas sin efecto ni excepción (compat C9).
+    contexto.Cerrar()
+    contexto.Cerrar()
 
 
 def TestRegistradoresSeExponenEnElContexto():

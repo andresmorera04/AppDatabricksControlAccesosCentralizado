@@ -22,7 +22,7 @@ La documentación vigente de Databricks Apps confirma el encabezado `x-forwarded
 
 - Cardinalidad N a M, revocación desde la UI, creación/eliminación de recursos, activación de features o administración de OAuth/scopes desde la propia App.
 - Tipos de objeto, canales o privilegios nuevos; cambios al dominio, la matriz, el pipeline, el resolutor o los reportes salvo correcciones estrictamente necesarias de cableado, sin alterar sus contratos.
-- Ejecutar grants con el service principal de la App, captura libre de identificadores como sustituto del descubrimiento, o fallback elevado cuando OBO falle.
+- Ejecutar grants con el service principal de la App como fallback NO autorizado (sin que medie la validación de la autoridad del llamante), captura libre de identificadores como sustituto del descubrimiento, o elevación cuando OBO falle. El modo broker (change `app-broker-identidad-ejecucion`) sí ejecuta ACLs del plano de control con el SP, pero solo tras la autorización del llamante.
 - Generador formal de informes (C10), instalaciones locales sin autorización humana o persistencia de tokens/estado de autenticación.
 
 ## Decisions
@@ -52,6 +52,8 @@ Un `ProveedorIdentidadDatabricksApp` implementa `ProveedorIdentidadLlamante` y o
 
 `FabricaContextoLlamante` crea, para cada acción, el proveedor, `ServicioIdentidadLlamante`, cliente SDK, sesión SQL remota (Statement Execution API, ver D5), canales, resolutor y pipeline. El SDK y la sesión SQL remota reciben el mismo token con `auth_type='pat'`; no se reutilizan singletons de módulo ni objetos entre sesiones de Streamlit. El estado de sesión guarda selecciones y modelos de vista, nunca tokens, headers, clientes OBO ni sesiones remotas.
 
+El modo broker (change `app-broker-identidad-ejecucion`, GO) añade un segundo contexto: `FabricaContextoBroker` compone el cliente del service principal (autoconfiguración OAuth M2M del entorno de la App), el canal de ACL del plano de control y el descubrimiento SCIM. La ejecución con el SP solo ocurre tras validar la autoridad del llamante (cerrojo D2 del change broker); OBO sigue siendo la única vía para identidad, SQL UC y ACL de Databricks Apps.
+
 - *Alternativa: un pipeline global al que solo se cambia `identidad_llamante`.* Descartada: esa identidad no autentica los canales y mezclaría credenciales entre usuarios.
 - *Alternativa: heredar las credenciales de la App mediante autoconfiguración.* Descartada: podría seleccionar el service principal de la App; la credencial OBO se pasa explícitamente y no hay fallback de grants.
 
@@ -61,7 +63,7 @@ Antes de construir la vertical completa se despliega un spike mínimo que valida
 
 Si el workspace no ofrece un scope necesario para una operación del alcance, la implementación se detiene en ese gate y se eleva al humano la limitación concreta. No se sustituye por la identidad de la App ni se declara disponible una operación no verificada. Los recursos de cómputo y warehouse, cuando aplique, se inyectan por `app.yaml`/variables de entorno y se referencian desde `config/app_properties.json`, sin host, token, secretos ni ids embebidos en Python.
 
-**Evidencia empírica del spike (2026-11-26, tareas 2.4/2.6):** las 24 sondas desplegadas en `andresFree` dieron GO para identidad OBO, descubrimiento UC (catálogos, esquemas, tablas, conexiones), listado de SQL warehouses y ACL de lectura y escritura en Apps; NO-GO por scopes no otorgables en Apps para listados SCIM (`scim`), clusters (`clusters`), Permissions API de warehouses (`access-management`) y tokens (`all-apis`). También reveló el fallo estructural de `databricks-connect` en la imagen de la App (hallazgo F2, ver D5). La prueba concluyente del catálogo de scopes es la tarea 2.7; de su resultado deriva el ajuste de alcance revisado (tareas posteriores y specs).
+**Evidencia empírica (2026-11-27, change `app-broker-identidad-ejecucion`, gate GO):** el gate OBO estricto (2.4/2.6) dio NO-GO por scopes de Apps no otorgables (`scim`, `clusters`, `access-management`, `all-apis`) y por `databricks-connect` inviable en Python 3.11 (hallazgo F2). El modelo broker absorbe esas superficies: el spike broker desplegado en `andresFree` verifica GO para listados SCIM con el SP, ACL de warehouse y tokens (lectura y escritura restaurada), ACL de `serverless-compute` (la superficie de cómputo real de Free; clusters all-purpose = 0) y la resolución de los privilegios efectivos del llamante leyendo la ACL con el SP. Toda escritura con el SP es posterior a la autorización del llamante (change broker).
 
 - *Alternativa: descubrir la limitación al final mediante las integrales.* Descartada: una carencia de scope cambia la viabilidad de OBO y debe detectarse antes de implementar toda la UI.
 
@@ -79,12 +81,12 @@ Transporte revisado: `SesionSqlRemota` sobre la SQL Statement Execution API del 
 
 ### D6 — Descubrimiento OBO detrás de puertos, con errores explícitos
 
-Un `ServicioDescubrimientoUi` consume puertos de listado de principals y objetos. La implementación Databricks usa el cliente OBO y APIs paginadas: SCIM para usuarios/grupos/service principals; APIs de workspace para cómputo, warehouses y Apps; APIs de Unity Catalog para catálogos, esquemas, tablas/vistas, volúmenes, modelos, external locations y connections. Los tipos de tabla se distinguen por sus metadatos, no por el texto introducido por el usuario.
+Un `ServicioDescubrimientoUi` consume puertos de listado de principals y objetos. Los listados de Unity Catalog y de SQL warehouses usan el cliente OBO y APIs paginadas; los listados SCIM de usuarios/grupos/service principals y de cómputo (clusters all-purpose y serverless compute objects) se obtienen con el **service principal de la App** (contexto broker, change `app-broker-identidad-ejecucion`), porque el token OBO carece del scope SCIM. Los tipos de tabla se distinguen por sus metadatos, no por el texto introducido por el usuario.
 
 Cada resultado se traduce a una `OpcionDescubierta` con principal/objeto del dominio, etiqueta y estado de descubrimiento. Paginación, límites de opciones y de ítems por lote son configurables. Un listado denegado produce un error de catálogo de opciones, nunca una lista vacía aparente. `USO_TOKEN`, al ser singleton, se representa con un identificador lógico configurable; el canal ya omite ese identificador en la ruta real.
 
 - *Alternativa: campos de texto libre.* Descartados como mecanismo principal: no satisfacen el descubrimiento de la proposal y aumentan errores e inyección de identificadores SQL.
-- *Alternativa: listar con el service principal de la App.* Descartada: mostraría recursos que el llamante no puede ver y rompería el modelo OBO.
+- *Listar SCIM con el service principal de la App.* Es la vía correcta para SCIM y cómputo (OBO no alcanza el scope); la autorización del llamante sigue aplicándose en la disponibilidad (D7), de modo que listar con SP no habilita escritura sin autoridad.
 
 ### D7 — Disponibilidad calculada con el resolutor existente
 
@@ -113,12 +115,12 @@ La confirmación tiene un indicador de procesamiento y se consume antes de inici
 
 ### D10 — Auditoría compartida con identidad de App; grants siempre OBO
 
-Se separan dos contextos sin mezclar autoridad: descubrimiento, resolución, SQL de grants y Permissions API usan OBO; la escritura de tablas compartidas de auditoría usa la identidad propia de la App con permisos mínimos sobre el esquema `control_acceso_app`. El campo `usuario` sigue siendo la identidad OBO resuelta.
+Se separan contextos sin mezclar autoridad: la resolución de privilegios, el SQL de grants (Unity Catalog) y la ACL de Databricks Apps usan OBO; la lectura/escritura de ACL del plano de control (warehouses, clusters, serverless compute objects, uso de tokens) se ejecuta con el service principal de la App (modo broker, change `app-broker-identidad-ejecucion`) **solo tras validar la autoridad del llamante**; la escritura de tablas compartidas de auditoría usa la identidad de la App con permisos mínimos sobre el esquema `control_acceso_app`. El campo `usuario` sigue siendo la identidad OBO resuelta.
 
 La inicialización idempotente de persistencia y los escritores de bitácora operan en la App mediante un cliente REST con las credenciales de la App (sentencias DDL e INSERT INTO vía SQL Statement Execution API), sin sesión Spark, conforme a D5 revisado; en los contextos local/lote de C1–C8 los escritores Spark inyectados se conservan sin cambios. El `VerificadorIntegridad` basado en DataFrame queda fuera del camino crítico de la UI. Un agregador de reporte alternativo en Python no reutiliza el contexto de auditoría. Un fallo de bitácora degrada a logs sin ocultar el reporte.
 
 - *Alternativa: escribir bitácoras con cada usuario OBO.* Descartada: obligaría a conceder DDL/escritura en el esquema operativo a todos los usuarios de la UI.
-- *Alternativa: también ejecutar grants con la App.* Descartada: rompe D2 del proyecto y permite elevación de privilegios.
+- *Alternativa: ejecutar grants con la App SIN la autorización del llamante.* Descartada: permitiría elevación de privilegios; el modo broker exige validar la autoridad del llamante antes de cada escritura con el SP (change `app-broker-identidad-ejecucion`).
 
 ### D11 — Errores seguros y configuración completa
 

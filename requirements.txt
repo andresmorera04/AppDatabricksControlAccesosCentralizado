@@ -4,11 +4,11 @@
 # requirements-dev.txt (proposal.md - What Changes; design.md D5).
 #
 # Reglas del contenedor (ver tests/unitarias/test_ui_dependencias.py):
-# - NO declarar pytest, pyspark ni delta-spark: son solo de la suite local y el
-#   contenedor no necesita un Spark local.
-# - databricks-connect se añadirá aquí con su pin validado en la tarea 2.3
-#   (spike contra el runtime serverless), y exige que este archivo nunca
-#   conviva con pyspark (design.md D5).
+# - NO declarar pytest, pyspark, delta-spark ni databricks-connect: son solo de
+#   la suite local, y el contenedor no necesita un Spark local. Desde el change
+#   `app-broker-identidad-ejecucion` (F2) el SQL OBO se ejecuta por la
+#   Statement Execution API (scope `sql`), por lo que Connect ya no forma parte
+#   del runtime de la App.
 #
 # Regla del proyecto: la IA no instala nada en la Mac sin aprobación expresa
 # del humano. Ver README.md -> "Estándar de desarrollo" -> "Prohibición de
@@ -27,31 +27,8 @@ streamlit==1.67.0
 
 # databricks-sdk: biblioteca oficial de Databricks. Transporte del canal
 # SDK/REST del plano de control (Permissions API, C7/C8), cliente OBO de la UI
-# para descubrimiento de principals/objetos e identidad SCIM del llamante
-# (design.md D3/D6). Pin 0.170.0 heredado de C7, contrastado contra los
-# workspaces reales en la capa integral; compartido con requirements-dev.txt.
+# para descubrimiento de principals/objetos, identidad SCIM del llamante
+# (design.md D3/D6) y Statement Execution API para el SQL OBO del plano de
+# datos (F2). Pin 0.170.0 heredado de C7, contrastado contra los workspaces
+# reales en la capa integral; compartido con requirements-dev.txt.
 databricks-sdk==0.170.0
-
-# databricks-connect: sesión Spark remota del runtime de la App (canal SQL del
-# plano de datos, persistencia de auditoría y agregación masiva de reportes de
-# lote) sin instalar un Spark local en el contenedor (design.md D5, tarea 2.3).
-#
-# Elección del pin 15.4.27, validada contra la documentación oficial
-# (dev-tools/databricks-connect/requirements, consultada en C9):
-# - la imagen estándar de Databricks Apps con pip usa Python 3.11
-#   (dev-tools/databricks-apps/system-env); las líneas 16.x-19.x de Connect
-#   exigen Python ==3.12.*, por lo que la única línea instalable en la App es
-#   la 15.4.x (tabla oficial: Connect 15.4 -> Python 3.11);
-# - el cómputo serverless está soportado desde Connect 15.4.10, y las
-#   versiones de Connect MENORES O IGUALES que el runtime serverless son
-#   plenamente compatibles: 15.4.x funciona contra serverless v2-v5
-#   (DBR 16.4/17.3/18.x);
-# - 15.4.27 es el parche más reciente de la línea (PyPI, 2026-11-13), que
-#   sigue recibiendo mantenimiento.
-#
-# INCOMPATIBILIDAD LOCAL (regla D5): databricks-connect distribuye su propio
-# pyspark y exige que el paquete `pyspark` NO esté instalado; el ~/.venv local
-# tiene pyspark==4.2.0 para la suite. Por eso Connect vive SOLO en este
-# archivo (runtime) y nunca en requirements-dev.txt; no se instala en la Mac y
-# se valida desplegado en el spike de la tarea 2.4 contra andresFree.
-databricks-connect==15.4.27

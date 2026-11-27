@@ -1,5 +1,15 @@
 # Databricks Asset Bundle de soporte al despliegue del spike OBO (C9, tarea 2.4).
 #
+# Recurso de despliegue del modo broker (change app-broker-identidad-ejecucion,
+# design.md D5, tasks.md 1.2 — asignado por el humano y verificado por SCIM):
+# el service principal de la App `app-62644q control-accesos-spike`
+# (applicationId 8be05e5d-0808-4698-a26f-1a5f7a4b63a0) recibe:
+#   - rol Workspace admin: pertenencia directa al grupo SCIM `admins`;
+#   - entitlements: databricks-sql-access (Databricks SQL Access),
+#     workspace-access (Workspace Access) y workspace-consume (Consumer Access).
+# Rollback: retirar el SP del grupo `admins` y quitar esos tres entitlements.
+# La ruta CLI/lote no depende de estos privilegios.
+#
 # Propósito: vehículo de SUBIDA del bundle desplegable a WSFS. El comando
 # `databricks fs cp` del CLI v1.27 no soporta rutas /Workspace/... (solo DBFS,
 # UC Volumes y UC Skills con esquema dbfs:/), y `databricks workspace

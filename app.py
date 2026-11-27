@@ -59,6 +59,7 @@ from control_accesos.autenticacion.servicio import ServicioIdentidadLlamante
 from control_accesos.canales.reales.canal_control_computo import (
     RECURSO_PERMISOS_POR_TIPO_OBJETO,
 )
+from control_accesos.canales.reales.canal_sql_datos import CanalSqlDatos
 from control_accesos.canales.reales.cliente_permisos_sdk import (
     ClientePermisosSdk,
 )
@@ -67,7 +68,10 @@ from control_accesos.configuracion.configuracion_app import (
     ConfiguracionApp,
 )
 from control_accesos.dominio.enumeraciones import TipoObjeto
-from control_accesos.ui.fabrica_contexto import CrearSesionSparkObo
+from control_accesos.dominio.modelos import ObjetoSecurable
+from control_accesos.resolucion.resolutor import ResolutorPrivilegiosEfectivos
+from control_accesos.ui.fabrica_contexto import CrearSesionSqlRemota
+from control_accesos.ui.fabrica_contexto_broker import FabricaContextoBroker
 from control_accesos.ui.proveedor_identidad_app import (
     AccederEncabezadosStreamlit,
     CrearClienteWorkspace,
@@ -127,6 +131,36 @@ SONDAS_SQL = (
     SONDA_SQL_SHOW_MODELOS,
     SONDA_SQL_SHOW_EXTERNAL_LOCATIONS,
 )
+
+# Identificación del spike broker y de su evidencia (change
+# `app-broker-identidad-ejecucion`): evidencia separada de la del gate OBO de
+# C9, porque valida la ejecución con la identidad del service principal.
+IDENTIFICADOR_SPIKE_BROKER = "spike-broker-app"
+NOMBRE_ARCHIVO_EVIDENCIA_BROKER = "broker_evidencia.json"
+RUTA_RELATIVA_EVIDENCIA_BROKER = (
+    "results/app-broker-identidad-ejecucion/broker_evidencia.json"
+)
+CLAVE_ESTADO_EVIDENCIA_BROKER = "evidencia_gate_broker"
+ETIQUETA_BOTON_EJECUTAR_BROKER = "Ejecutar verificaciones del gate broker (SP)"
+
+# Nombres de las 11 sondas broker (design.md D6): con la identidad del SP se
+# listan por SCIM los principals y los clusters, se lee y escribe (restaurada)
+# la ACL de warehouse/clusters/tokens, y se resuelven los privilegios efectivos
+# del llamante leyendo la ACL con el SP.
+SONDA_BROKER_SCIM_USUARIOS = "broker_scim_usuarios"
+SONDA_BROKER_SCIM_GRUPOS = "broker_scim_grupos"
+SONDA_BROKER_SCIM_SERVICE_PRINCIPALS = "broker_scim_service_principals"
+SONDA_BROKER_CLUSTERS = "broker_clusters"
+SONDA_BROKER_SERVERLESS = "broker_serverless"
+SONDA_BROKER_ACL_LECTURA_WAREHOUSE = "broker_acl_lectura_warehouse"
+SONDA_BROKER_ACL_LECTURA_CLUSTER = "broker_acl_lectura_cluster"
+SONDA_BROKER_ACL_LECTURA_SERVERLESS = "broker_acl_lectura_serverless"
+SONDA_BROKER_ACL_LECTURA_TOKENS = "broker_acl_lectura_tokens"
+SONDA_BROKER_ACL_ESCRITURA_WAREHOUSE = "broker_acl_escritura_warehouse_restaurada"
+SONDA_BROKER_ACL_ESCRITURA_CLUSTER = "broker_acl_escritura_cluster_restaurada"
+SONDA_BROKER_ACL_ESCRITURA_SERVERLESS = "broker_acl_escritura_serverless_restaurada"
+SONDA_BROKER_ACL_ESCRITURA_TOKENS = "broker_acl_escritura_tokens_restaurada"
+SONDA_BROKER_RESOLUCION_PRIVILEGIOS = "broker_resolucion_privilegios"
 
 # Catálogos que no se eligen como objetivo de las sondas de descubrimiento
 # (metadatos del sistema, no del gobierno de accesos).
@@ -356,6 +390,32 @@ def ProbarClusters(cliente, recursos):
     )
 
 
+def ProbarServerlessCompute(cliente, recursos):
+    """Sonda de serverless compute: lista y guarda el primero para las ACL.
+
+    Nota "cluster vs compute" (hallazgo 4.2): `clusters.list()` solo devuelve
+    cómputo all-purpose; el cómputo serverless es el recurso `serverless-compute`
+    de la Permissions API, listado por `serverless_compute_service.list()`. En
+    `andresFree` los clusters clásicos son 0, por lo que esta es la superficie
+    de cómputo relevante del workspace.
+
+    Args:
+        cliente (WorkspaceClient): cliente con la identidad del SP.
+        recursos (dict): estado compartido del descubrimiento (mutable).
+
+    Returns:
+        tuple[str, str]: estado y detalle con el recuento y el id elegido.
+    """
+    computos = list(cliente.serverless_compute_service.list())
+    if computos:
+        recursos["serverless_compute_id"] = computos[0].serverless_compute_id
+    return (
+        ESTADO_OK,
+        f"serverless compute: {len(computos)}; "
+        f"objetivo={recursos.get('serverless_compute_id')}",
+    )
+
+
 def ProbarApps(cliente, recursos):
     """Sonda de Databricks Apps: lista y guarda la primera para las ACL.
 
@@ -375,26 +435,27 @@ def ProbarApps(cliente, recursos):
     )
 
 
-def _ProbarSentencia(sesion_spark, sentencia, etiqueta):
+def _ProbarSentencia(sesion_sql, sentencia, etiqueta):
     """Ejecuta una sentencia SQL remota y reporta su recuento de filas.
 
     Args:
-        sesion_spark: sesión Databricks Connect con credencial OBO.
+        sesion_sql: sesión `SesionSqlRemota` (Statement Execution API) con
+            credencial OBO; su `sql()` devuelve listas de textos por fila.
         sentencia (str): sentencia SQL a ejecutar.
         etiqueta (str): nombre legible de la operación.
 
     Returns:
         tuple[str, str]: estado ``ok`` y recuento de filas.
     """
-    filas = sesion_spark.sql(sentencia).collect()
+    filas = sesion_sql.sql(sentencia)
     return ESTADO_OK, f"{etiqueta}: {len(filas)} fila(s)."
 
 
-def _SondaSqlSobreEsquema(sesion_spark, recursos, plantilla, etiqueta):
+def _SondaSqlSobreEsquema(sesion_sql, recursos, plantilla, etiqueta):
     """Ejecuta una sentencia SQL que requiere catálogo y esquema descubiertos.
 
     Args:
-        sesion_spark: sesión Databricks Connect con credencial OBO.
+        sesion_sql: sesión `SesionSqlRemota` con credencial OBO.
         recursos (dict): estado compartido del descubrimiento.
         plantilla (str): plantilla de la sentencia con ``{catalogo}`` y
             ``{esquema}``.
@@ -413,16 +474,17 @@ def _SondaSqlSobreEsquema(sesion_spark, recursos, plantilla, etiqueta):
             "ejecutarse.",
         )
     sentencia = plantilla.format(catalogo=catalogo, esquema=esquema)
-    return _ProbarSentencia(sesion_spark, sentencia, etiqueta)
+    return _ProbarSentencia(sesion_sql, sentencia, etiqueta)
 
 
 def _EjecutarSondasSql(host, token, configuracion, recursos):
-    """Ejecuta las sondas del plano SQL con una sesión Connect OBO.
+    """Ejecuta las sondas del plano SQL con la sesión remota OBO (F2).
 
-    La sesión se construye una sola vez para las cinco sondas y se detiene en
-    el ``finally``. Si la construcción falla (scope, cómputo serverless no
-    disponible, credencial rechazada), todas las sondas SQL se reportan en
-    fallo con el mismo detalle.
+    La sesión `SesionSqlRemota` (Statement Execution API) se construye una sola
+    vez para las cinco sondas contra el warehouse serverless descubierto en
+    ``ProbarWarehouses``. Si el warehouse no se descubrió (scope o cómputo no
+    disponible) o la sesión falla, todas las sondas SQL se reportan en fallo
+    con el mismo detalle.
 
     Args:
         host (str): host del workspace.
@@ -433,12 +495,11 @@ def _EjecutarSondasSql(host, token, configuracion, recursos):
     Returns:
         list[dict]: resultados de las cinco sondas SQL.
     """
-    try:
-        sesion_spark = CrearSesionSparkObo(host=host, token=token)
-    except Exception as excepcion:  # noqa: BLE001 - fallo de Connect
+    warehouse_id = recursos.get("warehouse_id")
+    if not warehouse_id:
         detalle = (
-            "No se pudo establecer la sesión Databricks Connect con la "
-            f"credencial OBO: {_DescripcionError(excepcion)}"
+            "Sin SQL warehouse serverless descubierto: la sonda SQL OBO no "
+            "tiene contra quién ejecutarse (design.md D3)."
         )
         return [
             {"nombre": nombre, "estado": ESTADO_FALLO, "detalle": detalle}
@@ -446,56 +507,62 @@ def _EjecutarSondasSql(host, token, configuracion, recursos):
         ]
 
     try:
-        catalogo_configurado = configuracion.ObtenerAtributo(ATRIBUTO_CATALOGO)
+        sesion_sql = CrearSesionSqlRemota(
+            host=host, token=token, warehouse_id=warehouse_id
+        )
+    except Exception as excepcion:  # noqa: BLE001 - fallo del transporte SQL
+        detalle = (
+            "No se pudo establecer la sesión SQL remota (Statement Execution "
+            f"API) con la credencial OBO: {_DescripcionError(excepcion)}"
+        )
         return [
-            _EjecutarSonda(
-                SONDA_SQL_SELECT_UNO,
-                lambda: _ProbarSentencia(
-                    sesion_spark, "SELECT 1", "SELECT 1 remoto"
-                ),
-            ),
-            _EjecutarSonda(
-                SONDA_SQL_SHOW_GRANTS,
-                lambda: _ProbarSentencia(
-                    sesion_spark,
-                    f"SHOW GRANTS ON CATALOG `{catalogo_configurado}`",
-                    f"SHOW GRANTS ON CATALOG `{catalogo_configurado}`",
-                ),
-            ),
-            _EjecutarSonda(
-                SONDA_SQL_SHOW_VOLUMENES,
-                lambda: _SondaSqlSobreEsquema(
-                    sesion_spark,
-                    recursos,
-                    "SHOW VOLUMES IN `{catalogo}`.`{esquema}`",
-                    "SHOW VOLUMES (ruta SQL de descubrimiento)",
-                ),
-            ),
-            _EjecutarSonda(
-                SONDA_SQL_SHOW_MODELOS,
-                lambda: _SondaSqlSobreEsquema(
-                    sesion_spark,
-                    recursos,
-                    "SHOW MODELS IN `{catalogo}`.`{esquema}`",
-                    "SHOW MODELS (ruta SQL de descubrimiento)",
-                ),
-            ),
-            _EjecutarSonda(
-                SONDA_SQL_SHOW_EXTERNAL_LOCATIONS,
-                lambda: _ProbarSentencia(
-                    sesion_spark,
-                    "SHOW EXTERNAL LOCATIONS",
-                    "SHOW EXTERNAL LOCATIONS (ruta SQL de descubrimiento)",
-                ),
-            ),
+            {"nombre": nombre, "estado": ESTADO_FALLO, "detalle": detalle}
+            for nombre in SONDAS_SQL
         ]
-    finally:
-        try:
-            sesion_spark.stop()
-        except Exception:  # noqa: BLE001 - cierre de la sesión del spike
-            # El cierre fallido de la sesión del spike no invalida la
-            # evidencia ya generada; se ignora de forma controlada.
-            pass
+
+    catalogo_configurado = configuracion.ObtenerAtributo(ATRIBUTO_CATALOGO)
+    return [
+        _EjecutarSonda(
+            SONDA_SQL_SELECT_UNO,
+            lambda: _ProbarSentencia(
+                sesion_sql, "SELECT 1", "SELECT 1 remoto"
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_SQL_SHOW_GRANTS,
+            lambda: _ProbarSentencia(
+                sesion_sql,
+                f"SHOW GRANTS ON CATALOG `{catalogo_configurado}`",
+                f"SHOW GRANTS ON CATALOG `{catalogo_configurado}`",
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_SQL_SHOW_VOLUMENES,
+            lambda: _SondaSqlSobreEsquema(
+                sesion_sql,
+                recursos,
+                "SHOW VOLUMES IN `{catalogo}`.`{esquema}`",
+                "SHOW VOLUMES (ruta SQL de descubrimiento)",
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_SQL_SHOW_MODELOS,
+            lambda: _SondaSqlSobreEsquema(
+                sesion_sql,
+                recursos,
+                "SHOW MODELS IN `{catalogo}`.`{esquema}`",
+                "SHOW MODELS (ruta SQL de descubrimiento)",
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_SQL_SHOW_EXTERNAL_LOCATIONS,
+            lambda: _ProbarSentencia(
+                sesion_sql,
+                "SHOW EXTERNAL LOCATIONS",
+                "SHOW EXTERNAL LOCATIONS (ruta SQL de descubrimiento)",
+            ),
+        ),
+    ]
 
 
 def ProbarAclLectura(transporte_permisos, tipo_objeto, identificador):
@@ -616,6 +683,211 @@ def _EjecutarSondasAcl(transporte_permisos, recursos):
         for nombre, tipo, identificador in objetivos_escritura
     ]
     return sondas
+
+
+def ProbarResolucionPrivilegiosBroker(host, token, canal_control_sp,
+                                      warehouse_id, identidad):
+    """Resuelve los privilegios efectivos del llamante leyendo la ACL con el SP.
+
+    Es la sonda que demuestra el corazón del modelo broker (design.md D2): la
+    ACL del warehouse se LEE con la identidad del service principal (no con la
+    OBO) y el resolutor de C3 empareja esas entradas con la identidad y los
+    grupos del llamante, devolviendo los privilegios efectivos.
+
+    Args:
+        host (str): host del workspace.
+        token (str): token OBO del llamante (solo para el canal de datos OBO).
+        canal_control_sp (CanalControlComputo): canal del plano de control del
+            SP (lee la ACL del warehouse).
+        warehouse_id (str | None): id del warehouse objetivo.
+        identidad (IdentidadLlamante | None): identidad OBO del llamante.
+
+    Returns:
+        tuple[str, str]: estado y detalle con los privilegios efectivos;
+            ``no_disponible`` sin warehouse y ``fallo`` sin identidad.
+    """
+    if not warehouse_id:
+        return (
+            ESTADO_NO_DISPONIBLE,
+            "Sin SQL warehouse descubierto para resolver la ACL con el SP.",
+        )
+    if identidad is None:
+        return (
+            ESTADO_FALLO,
+            "Identidad OBO del llamante no resuelta: no hay a quién evaluar.",
+        )
+    objeto = ObjetoSecurable(
+        identificador=warehouse_id, tipo=TipoObjeto.SQL_WAREHOUSE
+    )
+    canal_datos_obo = CanalSqlDatos(
+        sesion_sql=CrearSesionSqlRemota(host, token, warehouse_id)
+    )
+    resolutor = ResolutorPrivilegiosEfectivos(
+        canal_datos=canal_datos_obo, canal_control=canal_control_sp
+    )
+    vista = resolutor.ResolverPrivilegiosEfectivos(identidad, objeto)
+    privilegios = sorted(vista.privilegios_efectivos)
+    return (
+        ESTADO_OK,
+        f"privilegios efectivos del llamante sobre el warehouse (ACL leída "
+        f"con SP): {privilegios}",
+    )
+
+
+def _DescubrirObjetivosBroker(cliente_sp):
+    """Descubre warehouse y cluster para las sondas ACL con el SP.
+
+    Un fallo de descubrimiento no aborta el gate: se devuelve el id ausente y
+    las sondas ACL correspondientes quedan ``no_disponible``.
+
+    Args:
+        cliente_sp (WorkspaceClient): cliente con la identidad del SP.
+
+    Returns:
+        dict: estado compartido con ``warehouse_id`` y ``cluster_id``.
+    """
+    recursos = {}
+    for funcion in (ProbarWarehouses, ProbarClusters, ProbarServerlessCompute):
+        try:
+            funcion(cliente_sp, recursos)
+        except Exception:  # noqa: BLE001 - descubrimiento degradado
+            # La sonda de descubrimiento correspondiente queda ausente; las
+            # sondas de ACL sobre ese objeto reportarán no_disponible.
+            pass
+    return recursos
+
+
+def EjecutarVerificacionesBroker(configuracion):
+    """Ejecuta las 11 sondas broker con la identidad del SP.
+
+    La autorización del llamante (OBO) sigue presente en la resolución de
+    privilegios (lectura de ACL con SP + emparejamiento con la identidad);
+    la EJECUCIÓN de las sondas de descubrimiento y ACL usa el SP.
+
+    Args:
+        configuracion (ConfiguracionApp): configuración única del proyecto.
+
+    Returns:
+        dict: evidencia del gate broker con ``spike``, ``timestamp_utc``,
+            ``usuario`` (identidad OBO) y ``sondas``.
+
+    Raises:
+        ErrorContextoLlamanteAusente: sin token OBO (fuera de la App).
+        ErrorAutenticacionLlamante: sin host o sin cliente SP.
+    """
+    token = LeerTokenObo(AccederEncabezadosStreamlit, configuracion)
+    host = LeerHostWorkspace(os.environ, configuracion)
+
+    cliente_obo = CrearClienteWorkspace(host=host, token=token)
+    contexto_broker = FabricaContextoBroker().CrearContexto()
+    cliente_sp = contexto_broker.cliente_sp
+    canal_control_sp = contexto_broker.canal_control
+    transporte_sp = canal_control_sp.transporte
+
+    proveedor = ProveedorIdentidadDatabricksApp(configuracion=configuracion)
+    servicio_identidad = ServicioIdentidadLlamante(proveedor=proveedor)
+    identidad = servicio_identidad.ObtenerIdentidadLlamante()
+
+    recursos = _DescubrirObjetivosBroker(cliente_sp)
+    warehouse_id = recursos.get("warehouse_id")
+    cluster_id = recursos.get("cluster_id")
+    serverless_compute_id = recursos.get("serverless_compute_id")
+
+    sondas = [
+        _EjecutarSonda(
+            SONDA_BROKER_SCIM_USUARIOS,
+            lambda: ProbarListado(
+                contexto_broker.descubridor_principales.ListarUsuarios(),
+                "usuarios SCIM (SP)",
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_SCIM_GRUPOS,
+            lambda: ProbarListado(
+                contexto_broker.descubridor_principales.ListarGrupos(),
+                "grupos SCIM (SP)",
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_SCIM_SERVICE_PRINCIPALS,
+            lambda: ProbarListado(
+                contexto_broker.descubridor_principales.ListarServicePrincipals(),
+                "service principals SCIM (SP)",
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_CLUSTERS,
+            lambda: ProbarClusters(cliente_sp, recursos),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_SERVERLESS,
+            lambda: ProbarServerlessCompute(cliente_sp, recursos),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_ACL_LECTURA_WAREHOUSE,
+            lambda: ProbarAclLectura(
+                transporte_sp, TipoObjeto.SQL_WAREHOUSE, warehouse_id
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_ACL_LECTURA_CLUSTER,
+            lambda: ProbarAclLectura(
+                transporte_sp, TipoObjeto.COMPUTO_CLASICO, cluster_id
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_ACL_LECTURA_SERVERLESS,
+            lambda: ProbarAclLectura(
+                transporte_sp, TipoObjeto.COMPUTO_SERVERLESS,
+                serverless_compute_id,
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_ACL_LECTURA_TOKENS,
+            lambda: ProbarAclLectura(transporte_sp, TipoObjeto.USO_TOKEN, ""),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_ACL_ESCRITURA_WAREHOUSE,
+            lambda: ProbarAclEscrituraRestaurada(
+                transporte_sp, TipoObjeto.SQL_WAREHOUSE, warehouse_id
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_ACL_ESCRITURA_CLUSTER,
+            lambda: ProbarAclEscrituraRestaurada(
+                transporte_sp, TipoObjeto.COMPUTO_CLASICO, cluster_id
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_ACL_ESCRITURA_SERVERLESS,
+            lambda: ProbarAclEscrituraRestaurada(
+                transporte_sp, TipoObjeto.COMPUTO_SERVERLESS,
+                serverless_compute_id,
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_ACL_ESCRITURA_TOKENS,
+            lambda: ProbarAclEscrituraRestaurada(
+                transporte_sp, TipoObjeto.USO_TOKEN, ""
+            ),
+        ),
+        _EjecutarSonda(
+            SONDA_BROKER_RESOLUCION_PRIVILEGIOS,
+            lambda: ProbarResolucionPrivilegiosBroker(
+                host, token, canal_control_sp, warehouse_id, identidad
+            ),
+        ),
+    ]
+
+    return {
+        "spike": IDENTIFICADOR_SPIKE_BROKER,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "usuario": (
+            identidad.principal.identificador if identidad is not None
+            else None
+        ),
+        "sondas": sondas,
+    }
 
 
 def EjecutarVerificaciones(configuracion):
@@ -755,6 +1027,51 @@ def _RenderizarResultados(evidencia):
         st.code(texto_evidencia, language="json")
 
 
+def _RenderizarResultadosBroker(evidencia):
+    """Presenta la evidencia del gate broker en la página.
+
+    Args:
+        evidencia (dict): resultado de ``EjecutarVerificacionesBroker``.
+    """
+    st.subheader("Resultados del gate broker (SP)")
+    recuento_ok = sum(
+        1 for sonda in evidencia["sondas"] if sonda["estado"] == ESTADO_OK
+    )
+    recuento_fallo = sum(
+        1 for sonda in evidencia["sondas"] if sonda["estado"] == ESTADO_FALLO
+    )
+    recuento_no_disponible = sum(
+        1
+        for sonda in evidencia["sondas"]
+        if sonda["estado"] == ESTADO_NO_DISPONIBLE
+    )
+    columna_ok, columna_fallo, columna_no_disponible = st.columns(3)
+    columna_ok.metric("Sondas broker en verde", recuento_ok)
+    columna_fallo.metric("Sondas broker en fallo", recuento_fallo)
+    columna_no_disponible.metric(
+        "Sondas broker no disponibles", recuento_no_disponible
+    )
+
+    st.dataframe(evidencia["sondas"])
+
+    texto_evidencia = json.dumps(evidencia, indent=2, ensure_ascii=False)
+    st.download_button(
+        "Descargar evidencia broker JSON",
+        data=texto_evidencia,
+        file_name=NOMBRE_ARCHIVO_EVIDENCIA_BROKER,
+        mime="application/json",
+    )
+    st.caption(
+        f"Evidencia broker generada por '{evidencia['usuario']}' a las "
+        f"{evidencia['timestamp_utc']}. Guarde el JSON en "
+        f"`{RUTA_RELATIVA_EVIDENCIA_BROKER}` para que "
+        f"`tests/integrales/test_broker_spike_andresfree.py` verifique el "
+        f"gate."
+    )
+    with st.expander("Evidencia broker JSON (copiable)"):
+        st.code(texto_evidencia, language="json")
+
+
 def RenderizarPagina():
     """Punto de entrada de la página del spike (entrada mínima desplegable)."""
     st.set_page_config(page_title=TITULO_PAGINA, layout="wide")
@@ -804,6 +1121,44 @@ def RenderizarPagina():
 
     if CLAVE_ESTADO_EVIDENCIA in st.session_state:
         _RenderizarResultados(st.session_state[CLAVE_ESTADO_EVIDENCIA])
+
+    st.divider()
+    st.subheader("Gate broker (identidad del service principal)")
+    st.markdown(
+        "Sondas del change `app-broker-identidad-ejecucion`: el descubrimiento "
+        "SCIM/clusters y la lectura/escritura de ACL usan la identidad del "
+        "service principal de la App; la resolución de privilegios sigue "
+        "evaluando al llamante OBO sobre esa ACL."
+    )
+
+    if st.button(ETIQUETA_BOTON_EJECUTAR_BROKER):
+        with st.spinner(
+            "Ejecutando las sondas broker con la identidad del SP..."
+        ):
+            try:
+                st.session_state[CLAVE_ESTADO_EVIDENCIA_BROKER] = (
+                    EjecutarVerificacionesBroker(configuracion)
+                )
+            except ErrorContextoLlamanteAusente:
+                st.warning(
+                    "La invocación no trae un token on-behalf-of: ejecute esta "
+                    "página dentro de la Databricks App desplegada."
+                )
+            except ErrorAutenticacionLlamante as excepcion:
+                st.error(
+                    f"No se pudo componer la identidad del service principal: "
+                    f"{excepcion.mensaje}"
+                )
+            except Exception as excepcion:  # noqa: BLE001 - fallo del spike
+                st.error(
+                    f"Fallo inesperado en las sondas broker: "
+                    f"{_DescripcionError(excepcion)}"
+                )
+
+    if CLAVE_ESTADO_EVIDENCIA_BROKER in st.session_state:
+        _RenderizarResultadosBroker(
+            st.session_state[CLAVE_ESTADO_EVIDENCIA_BROKER]
+        )
 
 
 if __name__ == "__main__":

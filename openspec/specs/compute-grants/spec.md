@@ -141,12 +141,17 @@ El canal SHALL distinguir las respuestas de error del workspace: permiso denegad
 
 ### Requirement: Identidad del llamante y trazabilidad de cada cambio
 
-Cada operación sobre la ACL SHALL ejecutarse con la credencial del llamante que provoca la solicitud, y cada cambio de permiso SHALL quedar registrado en la bitácora de eventos con el usuario que lo provoca y su desglose por ítem. Los fallos de ejecución SHALL registrarse en la bitácora de errores con su detalle.
+La autorización SHALL evaluarse siempre con la identidad del llamante y cada cambio SHALL registrarse en la bitácora de eventos con su usuario y desglose por ítem; los fallos SHALL registrarse en la bitácora de errores. La ejecución SHALL usar la credencial del llamante en CLI/lote; en la Databricks App en modo broker (`app-broker-grants`) SHALL poder usar la identidad de la App solo tras validar la autoridad del llamante en la misma acción.
 
 #### Scenario: Evento con el usuario del llamante
 
 - **WHEN** un llamante con identidad resuelta procesa una solicitud sobre un objeto de cómputo
 - **THEN** el evento queda registrado en la bitácora de eventos con el usuario del llamante y el resultado por ítem
+
+#### Scenario: Ejecución broker autorizada sobre la ACL
+
+- **WHEN** la App opera en modo broker y el llamante tiene validada su autoridad sobre el objeto de cómputo
+- **THEN** la operación sobre la ACL se ejecuta con la identidad de la App y el evento registra el usuario OBO del llamante
 
 #### Scenario: Fallo de ejecución registrado
 
@@ -174,7 +179,7 @@ La gestión serverless SHALL limitarse a los permisos de los serverless compute 
 
 ### Requirement: Credenciales y destino inyectados, sin valores embebidos
 
-El canal SHALL recibir por inyección el acceso al workspace (cliente o transporte y credencial del llamante), sin valores de conexión, identificadores de objeto ni niveles de permiso embebidos en el código. Con un transporte simulado, el canal SHALL poder ejercitarse por completo sin conexión externa.
+El canal SHALL recibir por inyección el acceso al workspace (cliente o transporte y credencial de ejecución), sin valores de conexión, identificadores de objeto ni niveles de permiso embebidos en el código. La credencial de ejecución SHALL ser la del llamante en la ruta CLI/lote y la de la App en el modo broker, siempre con la autorización del llamante validada previamente. Con un transporte simulado, el canal SHALL poder ejercitarse por completo sin conexión externa.
 
 #### Scenario: Canal ejercitado sin workspace alguno
 

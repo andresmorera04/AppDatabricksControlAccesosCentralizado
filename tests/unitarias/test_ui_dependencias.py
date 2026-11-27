@@ -5,17 +5,18 @@ Change C9 (`web-ui-minimalista`), capability `grant-management-ui`.
 El proposal.md y el design.md (decisión D5) exigen separar las dependencias en
 dos artefactos:
 
-- ``requirements.txt``: runtime de la Databricks App (Streamlit,
-  ``databricks-sdk`` y, desde la tarea 2.3, ``databricks-connect``). NO debe
-  contener las dependencias de la suite local (``pytest``, ``pyspark``,
-  ``delta-spark``): el contenedor de la App no necesita un Spark local y
-  Databricks Connect entra en conflicto con el paquete ``pyspark`` instalado.
+- ``requirements.txt``: runtime de la Databricks App (``streamlit`` y
+  ``databricks-sdk``). NO debe contener las dependencias de la suite local
+  (``pytest``, ``pyspark``, ``delta-spark``) ni ``databricks-connect``: desde
+  la corrección F2 (change `app-broker-identidad-ejecucion`) el SQL OBO se
+  ejecuta por la Statement Execution API del SDK y el contenedor no necesita
+  Spark alguno.
 - ``requirements-dev.txt``: suite de pruebas (``pytest``, ``pyspark``,
   ``delta-spark``, ``PyYAML``) más los pins compartidos que las pruebas
   necesitan para importar el código de runtime (``databricks-sdk``,
-  ``streamlit``). NO debe incluir ``databricks-connect`` (incompatible con el
-  ``pyspark`` local de la suite) ni una referencia ``-r requirements.txt``
-  (arrastraría Connect al entorno de desarrollo).
+  ``streamlit``). NO debe incluir ``databricks-connect`` (retirado del runtime
+  por F2 e incompatible con el ``pyspark`` local) ni una referencia
+  ``-r requirements.txt`` (que duplicaría el contrato runtime).
 
 La duplicación deliberada de los pins compartidos se controla aquí: ambos
 archivos deben declarar exactamente la misma versión para cada paquete común,
@@ -52,11 +53,10 @@ PAQUETES_PROHIBIDOS_DESARROLLO = ("databricks-connect",)
 # despliegue sea reproducible.
 PAQUETES_OBLIGATORIOS_RUNTIME_CON_PIN = ("databricks-sdk", "streamlit")
 
-# Databricks Connect: dependencia exclusiva del runtime (tarea 2.3 de C9).
-# Pin 15.4.x: la imagen de la App usa Python 3.11 y las líneas 16+ de Connect
-# exigen Python ==3.12.*; el soporte de cómputo serverless comienza en
-# 15.4.10 y las versiones de Connect menores o iguales que el runtime
-# serverless son plenamente compatibles (documentación oficial).
+# Databricks Connect: retirado del runtime por la corrección F2 (change
+# `app-broker-identidad-ejecucion`): el SQL OBO de la App se ejecuta por la
+# Statement Execution API del SDK y no requiere Spark local ni una conexión
+# Connect. Se conserva el nombre para la prueba que verifica su AUSENCIA.
 NOMBRE_PAQUETE_CONNECT = "databricks-connect"
 
 # Dependencias de la suite que deben conservarse en el archivo de desarrollo
@@ -174,25 +174,22 @@ def TestRuntimeDeclaraSdkYStreamlitConPinExacto():
         )
 
 
-def TestRuntimeDeclaraDatabricksConnectConPinExacto():
-    """requirements.txt debe declarar databricks-connect con pin exacto.
+def TestRuntimeNoDeclaraDatabricksConnect():
+    """requirements.txt no debe declarar databricks-connect (retirado por F2).
 
-    Connect es la vía del runtime de la App al SQL/Spark remoto (canal del
-    plano de datos, persistencia de auditoría y agregación de lotes) sin
-    instalar un Spark local en el contenedor (design.md D5, tarea 2.3).
+    Desde el change `app-broker-identidad-ejecucion` el SQL OBO de la App se
+    ejecuta por la Statement Execution API del SDK (scope `sql`), de modo que
+    Connect —inviable en la imagen de la App con Python 3.11— ya no forma parte
+    del runtime ni justifica su pin (design.md D3 de `app-broker-...`).
     """
     paquetes = _ParsearArchivoRequisitos(RUTA_ARCHIVO_RUNTIME)
 
     nombre = _NormalizarNombrePaquete(NOMBRE_PAQUETE_CONNECT)
-    assert nombre in paquetes, (
-        f"El runtime de la App debe declarar '{NOMBRE_PAQUETE_CONNECT}' en "
-        f"{NOMBRE_ARCHIVO_RUNTIME}: es la sesión Spark remota de la "
-        f"aplicación desplegada (design.md D5)."
-    )
-    assert paquetes[nombre] is not None, (
-        f"El runtime debe fijar '{NOMBRE_PAQUETE_CONNECT}' con pin exacto "
-        f"'{SEPARADOR_PIN_EXACTO}' validado contra la imagen de la App y el "
-        f"cómputo serverless; se declaró sin versión."
+    assert nombre not in paquetes, (
+        f"El runtime de la App no debe declarar '{NOMBRE_PAQUETE_CONNECT}': "
+        f"la corrección F2 lo retira en favor de la sesión SQL remota por "
+        f"Statement Execution API (design.md D3 del change "
+        f"app-broker-identidad-ejecucion)."
     )
 
 

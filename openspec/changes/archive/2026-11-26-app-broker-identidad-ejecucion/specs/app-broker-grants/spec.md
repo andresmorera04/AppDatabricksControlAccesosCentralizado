@@ -58,19 +58,37 @@ El sistema SHALL mantener la ejecución con la credencial OBO del llamante para 
 - **WHEN** el scope `apps` permite la operación sobre una Databricks App
 - **THEN** la ACL se gestiona con la credencial OBO del llamante, sin elevar a la identidad de la App
 
-### Requirement: Privilegios mínimos del service principal de la App
+### Requirement: Rol y entitlements del service principal de la App en modo broker
 
-El service principal de la App SHALL recibir los privilegios mínimos necesarios por superficie, documentados como recurso de despliegue; el uso de workspace admin SHALL justificarse y limitarse a lo que la plataforma exija.
+El service principal de la Databricks App, en modo broker, SHALL tener asignado por el humano como recurso de despliegue el rol **Workspace admin** sobre el workspace objetivo y los entitlements **Databricks SQL Access**, **Workspace Access** y **Consumer Access**.
 
-#### Scenario: Asignación de privilegios documentada
+#### Scenario: Asignación del rol y de los entitlements en el despliegue
 
-- **WHEN** se despliega el modo broker
-- **THEN** los privilegios del service principal quedan registrados por superficie (lectura SCIM, CAN_MANAGE por objeto, admin solo donde se exija)
+- **WHEN** se despliega el modo broker sobre una Databricks App
+- **THEN** el service principal de la App tiene el rol Workspace admin sobre el workspace objetivo y los entitlements Databricks SQL Access, Workspace Access y Consumer Access, y la asignación queda registrada en el change como recurso de despliegue ejecutado por el humano
 
-#### Scenario: Endurecimiento de una superficie
+#### Scenario: Verificación posterior a la asignación
 
-- **WHEN** una superficie puede operar sin workspace admin
-- **THEN** el despliegue la configura con privilegios reducidos en lugar de admin global
+- **WHEN** el humano declara la asignación como completada
+- **THEN** la App permanece RUNNING al consultarla con la API de Databricks Apps y el gate broker se ejecuta contra esa configuración documentada
+
+### Requirement: Documentación operativa de los privilegios del SP
+
+La configuración de privilegios del service principal SHALL estar listada textualmente en `config/app_properties.json`, `databricks.yml` y el README (rol de workspace y entitlements), sin valores embebidos de credencial.
+
+#### Scenario: Documentación presente en los recursos de despliegue
+
+- **WHEN** se consulta la configuración del modo broker
+- **THEN** los privilegios del service principal aparecen listados en `config/app_properties.json`, `databricks.yml` y el README
+
+### Requirement: Cambios a los privilegios del SP requieren un nuevo change de OpenSpec
+
+Cualquier propuesta de reducir los privilegios documentados del SP (rol Workspace admin o alguno de los entitlements Databricks SQL Access, Workspace Access o Consumer Access) SHALL gestionarse mediante un change de OpenSpec separado con su propia evidencia y SHALL NO aplicarse como ajuste silencioso ni en producción sin trazabilidad.
+
+#### Scenario: Reducción propuesta de privilegios del SP
+
+- **WHEN** una superficie podría operar con privilegios inferiores a los documentados
+- **THEN** la propuesta se registra en un nuevo change de OpenSpec con su evidencia y se revisa contra el gate, sin modificar la configuración actual de forma silenciosa
 
 ### Requirement: Aislamiento entre llamantes y auditoría con usuario OBO
 
