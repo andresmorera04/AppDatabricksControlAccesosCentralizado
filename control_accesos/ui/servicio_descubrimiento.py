@@ -1,22 +1,29 @@
-"""Servicio de descubrimiento de opciones de la UI (design.md D6, tarea 3.1).
+"""Servicio de descubrimiento de opciones de la UI (design.md D6, tareas 3.1-3.4).
 
 Change C9 (`web-ui-minimalista`), capability `grant-management-ui`.
 
-Capa de aplicación entre el descubrimiento real (SCIM con el service principal,
-`DescubridorPrincipales` del change broker) y la vista: traduce los principals
-descubiertos a `Principal` del dominio, preserva el App Id de los service
-principals como su identificador, y conserva sin alterar el orden, el límite y
-la distinción entre fallo y lista vacía que ya aporta el adaptador.
+Capa de aplicación entre los descubrimientos reales y la vista. Traduce a los
+modelos del dominio:
 
-Un fallo del listado se traduce a `ErrorDescubrimientoOpciones` (error de
-catálogo de opciones): la UI lo distingue de una lista auténticamente vacía y
-no habilita ejecución sobre datos incompletos (spec `grant-management-ui`).
+- **principals** (SCIM con el service principal, contexto broker, porque el
+  token OBO carece de los scopes SCIM) -> `Principal`;
+- **objetos de Unity Catalog** (catálogos, esquemas y tablas, con la credencial
+  OBO del llamante, porque `catalog.*` sí está disponible) -> `ObjetoSecurable`.
+
+Preserva el App Id de los service principals como identificador, el nombre
+calificado de los objetos UC, el orden, el límite y la distinción entre fallo y
+lista vacía que ya aportan los adaptadores. Un fallo de listado se traduce a
+`ErrorDescubrimientoOpciones` (error de catálogo de opciones): la vista lo
+distingue de una lista auténticamente vacía y no habilita ejecución sobre datos
+incompletos (spec `grant-management-ui`). El servicio NO valida autoridad (eso
+lo hace la disponibilidad, design.md D7).
 """
 
 from control_accesos.canales.reales.descubrimiento_principales import (
     ErrorListadoPrincipales,
 )
-from control_accesos.dominio.modelos import Principal
+from control_accesos.canales.reales.descubrimiento_uc import ErrorListadoUc
+from control_accesos.dominio.modelos import ObjetoSecurable, Principal
 
 # Identificador del módulo para trazas y mensajes (convención del proyecto).
 MODULO_DESCUBRIMIENTO_UI = "ui.servicio_descubrimiento"
@@ -25,90 +32,122 @@ MODULO_DESCUBRIMIENTO_UI = "ui.servicio_descubrimiento"
 class ErrorDescubrimientoOpciones(RuntimeError):
     """Fallo del descubrimiento de opciones, distinguible de una lista vacía.
 
-    Representa "no pude listar", nunca "no hay opciones": la vista trata este
-    error de forma controlada y no habilita ejecución sobre datos incompletos.
+    Representa "no pude listar", nunca "no hay opciones".
     """
 
 
 class ServicioDescubrimientoUi:
     """Traduce las opciones descubiertas a los modelos del dominio.
 
-    Delegado por acción sobre el descubridor SCIM del service principal
-    (contexto broker, design.md D6): la UI lista principals con el SP porque el
-    token OBO del llamante carece de los scopes SCIM. El servicio NO valida
-    autoridad (eso lo hace la disponibilidad, design.md D7): solo descubrir.
+    Colaboradores inyectados por acción: el descubridor de principals (SCIM-SP
+    del contexto broker) y el descubridor UC (OBO del llamante). Cada método
+    exige su colaborador y falla de forma explícita si no está dispuesto.
 
     Attributes:
-        descubridor_principales (DescubridorPrincipales): adaptador SCIM-SP
-            inyectado, con `ListarUsuarios`, `ListarGrupos`,
-            `ListarServicePrincipals` y `ListarPrincipales`.
+        descubridor_principales: adaptador SCIM-SP (`DescubridorPrincipales`).
+        descubridor_uc: adaptador UC OBO (`DescubridorUc`).
     """
 
-    def __init__(self, descubridor_principales):
-        """Inicializa el servicio con el descubridor inyectado.
+    def __init__(self, descubridor_principales=None, descubridor_uc=None):
+        """Inicializa el servicio con los descubridores inyectados.
 
         Args:
-            descubridor_principales (DescubridorPrincipales): adaptador real o
-                doble en pruebas.
-
-        Raises:
-            ValueError: si el descubridor es nulo (fail-fast de cableado).
+            descubridor_principales (DescubridorPrincipales | None): adaptador
+                SCIM-SP; obligatorio para los métodos de principals.
+            descubridor_uc (DescubridorUc | None): adaptador UC OBO; obligatorio
+                para los métodos de objetos de Unity Catalog.
         """
-        if descubridor_principales is None:
-            raise ValueError(
-                "Se requiere un descubridor de principals (service principal) "
-                "para el servicio de descubrimiento de la UI."
-            )
         self._descubridor_principales = descubridor_principales
+        self._descubridor_uc = descubridor_uc
+
+    # ------------------------------------------------------------------ #
+    # Principals (SCIM con el service principal, contexto broker).
+    # ------------------------------------------------------------------ #
 
     def DescubrirUsuarios(self):
-        """Lista los usuarios del workspace como `Principal` del dominio.
-
-        Returns:
-            tuple[Principal, ...]: usuarios, en el orden del servicio.
-        """
-        return self._Traducir(self._descubridor_principales.ListarUsuarios)
+        """Lista los usuarios del workspace como `Principal` del dominio."""
+        return self._TraducirPrincipales(
+            self._DescubridorPrincipales().ListarUsuarios
+        )
 
     def DescubrirGrupos(self):
-        """Lista los grupos del workspace como `Principal` del dominio.
-
-        Returns:
-            tuple[Principal, ...]: grupos, en el orden del servicio.
-        """
-        return self._Traducir(self._descubridor_principales.ListarGrupos)
+        """Lista los grupos del workspace como `Principal` del dominio."""
+        return self._TraducirPrincipales(
+            self._DescubridorPrincipales().ListarGrupos
+        )
 
     def DescubrirServicePrincipals(self):
-        """Lista los service principals como `Principal` (App Id preservado).
-
-        Returns:
-            tuple[Principal, ...]: service principals cuyo identificador es su
-                App Id (design.md D4), en el orden del servicio.
-        """
-        return self._Traducir(
-            self._descubridor_principales.ListarServicePrincipals
+        """Lista los service principals (App Id preservado como identificador)."""
+        return self._TraducirPrincipales(
+            self._DescubridorPrincipales().ListarServicePrincipals
         )
 
     def DescubrirPrincipales(self):
-        """Lista los tres tipos de principal en un solo agregado estable.
+        """Lista los tres tipos de principal en un solo agregado estable."""
+        return self._TraducirPrincipales(
+            self._DescubridorPrincipales().ListarPrincipales
+        )
 
-        Returns:
-            tuple[Principal, ...]: usuarios, luego grupos y luego service
-                principals, en el orden del servicio de cada tipo.
-        """
-        return self._Traducir(self._descubridor_principales.ListarPrincipales)
+    # ------------------------------------------------------------------ #
+    # Unity Catalog (con la credencial OBO del llamante).
+    # ------------------------------------------------------------------ #
 
-    def _Traducir(self, operacion):
-        """Ejecuta el listado y traduce el resultado, tipificando el fallo.
+    def DescubrirCatalogos(self):
+        """Lista los catálogos como `ObjetoSecurable` (nombre calificado)."""
+        return self._TraducirUc(self._DescubridorUc().ListarCatalogos)
+
+    def DescubrirEsquemas(self, catalogo):
+        """Lista los esquemas de un catálogo (`catalogo.esquema`).
 
         Args:
-            operacion (callable): método `Listar*` del descubridor inyectado.
+            catalogo (str): catálogo que acota el listado.
 
         Returns:
-            tuple[Principal, ...]: opciones traducidas, o tupla vacía.
+            tuple[ObjetoSecurable, ...]: esquemas.
+        """
+        return self._TraducirUc(self._DescubridorUc().ListarEsquemas, catalogo)
+
+    def DescubrirTablas(self, catalogo, esquema):
+        """Lista las tablas tabulares de un par (`catalogo.esquema.tabla`).
+
+        Args:
+            catalogo (str): catálogo.
+            esquema (str): esquema.
+
+        Returns:
+            tuple[ObjetoSecurable, ...]: tablas clasificadas por metadatos.
+        """
+        return self._TraducirUc(
+            self._DescubridorUc().ListarTablas, catalogo, esquema
+        )
+
+    # ------------------------------------------------------------------ #
+    # Internos.
+    # ------------------------------------------------------------------ #
+
+    def _DescubridorPrincipales(self):
+        """Devuelve el descubridor de principals o falla de forma explícita."""
+        if self._descubridor_principales is None:
+            raise ValueError(
+                "No hay un descubridor de principals (service principal) "
+                "dispuesto para esta acción."
+            )
+        return self._descubridor_principales
+
+    def _DescubridorUc(self):
+        """Devuelve el descubridor UC o falla de forma explícita."""
+        if self._descubridor_uc is None:
+            raise ValueError(
+                "No hay un descubridor de Unity Catalog (OBO) dispuesto para "
+                "esta acción."
+            )
+        return self._descubridor_uc
+
+    def _TraducirPrincipales(self, operacion):
+        """Ejecuta un listado de principals y traduce, tipificando el fallo.
 
         Raises:
-            ErrorDescubrimientoOpciones: si el listado falla (no si está vacío),
-                con la causa encadenada y sin credenciales.
+            ErrorDescubrimientoOpciones: si el listado falla (no si está vacío).
         """
         try:
             descubiertos = operacion()
@@ -121,4 +160,23 @@ class ServicioDescubrimientoUi:
         return tuple(
             Principal(identificador=principal.identificador, tipo=principal.tipo)
             for principal in descubiertos
+        )
+
+    def _TraducirUc(self, operacion, *argumentos):
+        """Ejecuta un listado UC y traduce a `ObjetoSecurable`.
+
+        Raises:
+            ErrorDescubrimientoOpciones: si el listado falla (no si está vacío).
+        """
+        try:
+            descubiertos = operacion(*argumentos)
+        except ErrorListadoUc as excepcion:
+            raise ErrorDescubrimientoOpciones(
+                f"[{MODULO_DESCUBRIMIENTO_UI}] No se pudieron descubrir los "
+                f"objetos de Unity Catalog: {excepcion}"
+            ) from excepcion
+
+        return tuple(
+            ObjetoSecurable(identificador=objeto.identificador, tipo=objeto.tipo)
+            for objeto in descubiertos
         )
