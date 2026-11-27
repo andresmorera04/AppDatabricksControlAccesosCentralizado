@@ -80,7 +80,17 @@ from adaptador_sql_databricks import (
 )
 
 # Todas las pruebas de este módulo son integrales contra andresFree.
-pytestmark = pytest.mark.free
+pytestmark = [
+    pytest.mark.free,
+    pytest.mark.skip(
+        reason=(
+            "Gate D4 OBO superseded por el gate broker GO (tarea 2.4, change "
+            "archivado app-broker-identidad-ejecucion). La evidencia OBO NO-GO "
+            "de este spike fue sustituida por "
+            "results/app-broker-identidad-ejecucion/broker_evidencia.json."
+        )
+    ),
+]
 
 # Raíz del proyecto, derivada de la ubicación de este archivo
 # (tests/integrales/ -> raíz), sin rutas absolutas escritas a mano.
