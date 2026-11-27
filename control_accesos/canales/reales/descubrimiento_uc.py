@@ -98,7 +98,15 @@ class DescubridorUc:
                 "Se requiere un cliente (WorkspaceClient OBO) para listar "
                 "objetos de Unity Catalog."
             )
-        for nombre_servicio in ("catalogs", "schemas", "tables"):
+        for nombre_servicio in (
+            "catalogs",
+            "schemas",
+            "tables",
+            "volumes",
+            "registered_models",
+            "external_locations",
+            "connections",
+        ):
             servicio = getattr(cliente, nombre_servicio, None)
             if servicio is None or not hasattr(servicio, "list"):
                 raise ValueError(
@@ -147,6 +155,62 @@ class DescubridorUc:
                 catalog_name=catalogo, schema_name=esquema
             ),
             _ObjetoDesdeTabla(catalogo, esquema),
+        )
+
+    def ListarVolumenes(self, catalogo, esquema):
+        """Lista los volúmenes del par (`catalogo.esquema.volumen`).
+
+        Args:
+            catalogo (str): catálogo.
+            esquema (str): esquema.
+
+        Returns:
+            tuple[ObjetoUcDescubierto, ...]: volúmenes, en el orden del servicio.
+        """
+        return self._Listar(
+            lambda: self._cliente.volumes.list(
+                catalog_name=catalogo, schema_name=esquema
+            ),
+            _ObjetoSecurableTresPartes(catalogo, esquema, TipoObjeto.VOLUMEN),
+        )
+
+    def ListarModelosMl(self, catalogo, esquema):
+        """Lista los modelos registrados del par (`catalogo.esquema.modelo`).
+
+        Args:
+            catalogo (str): catálogo.
+            esquema (str): esquema.
+
+        Returns:
+            tuple[ObjetoUcDescubierto, ...]: modelos ML, en el orden del servicio.
+        """
+        return self._Listar(
+            lambda: self._cliente.registered_models.list(
+                catalog_name=catalogo, schema_name=esquema
+            ),
+            _ObjetoSecurableTresPartes(catalogo, esquema, TipoObjeto.MODELO_ML),
+        )
+
+    def ListarExternalLocations(self):
+        """Lista las external locations (nombre simple).
+
+        Returns:
+            tuple[ObjetoUcDescubierto, ...]: external locations, en orden.
+        """
+        return self._Listar(
+            lambda: self._cliente.external_locations.list(),
+            _ObjetoSecurableUnaParte(TipoObjeto.EXTERNAL_LOCATION),
+        )
+
+    def ListarConexiones(self):
+        """Lista las connections (nombre simple).
+
+        Returns:
+            tuple[ObjetoUcDescubierto, ...]: connections, en orden.
+        """
+        return self._Listar(
+            lambda: self._cliente.connections.list(),
+            _ObjetoSecurableUnaParte(TipoObjeto.CONNECTION),
         )
 
     def _Listar(self, operacion, traductor):
@@ -263,3 +327,46 @@ def _TipoTabla(registro):
     if valor is None:
         valor = table_type
     return TABLE_TYPE_A_TIPO_OBJETO.get(str(valor).upper())
+
+
+def _ObjetoSecurableTresPartes(catalogo, esquema, tipo):
+    """Devuelve un traductor a `catalogo.esquema.nombre` para el tipo indicado.
+
+    Args:
+        catalogo (str): catálogo que prefija el nombre calificado.
+        esquema (str): esquema que prefija el nombre calificado.
+        tipo (TipoObjeto): tipo del objeto (VOLUMEN o MODELO_ML).
+
+    Returns:
+        callable: traductor registro -> ObjetoUcDescubierto o None.
+    """
+
+    def traducir(registro):
+        nombre = _TextoONulo(getattr(registro, "name", None))
+        if nombre is None:
+            return None
+        return ObjetoUcDescubierto(
+            tipo=tipo,
+            identificador=f"{catalogo}.{esquema}.{nombre}",
+        )
+
+    return traducir
+
+
+def _ObjetoSecurableUnaParte(tipo):
+    """Devuelve un traductor por nombre simple para el tipo indicado.
+
+    Args:
+        tipo (TipoObjeto): tipo del objeto (EXTERNAL_LOCATION o CONNECTION).
+
+    Returns:
+        callable: traductor registro -> ObjetoUcDescubierto o None.
+    """
+
+    def traducir(registro):
+        nombre = _TextoONulo(getattr(registro, "name", None))
+        if nombre is None:
+            return None
+        return ObjetoUcDescubierto(tipo=tipo, identificador=nombre)
+
+    return traducir

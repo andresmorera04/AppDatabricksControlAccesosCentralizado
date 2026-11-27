@@ -61,15 +61,37 @@ class ServicioListadoFalso:
 
 
 class ClienteUcFalso:
-    """Cliente UC falso con los tres servicios que consume el descubridor."""
+    """Cliente UC falso con los siete servicios que consume el descubridor."""
 
-    def __init__(self, catalogs=None, schemas=None, tables=None):
+    def __init__(
+        self,
+        catalogs=None,
+        schemas=None,
+        tables=None,
+        volumes=None,
+        registered_models=None,
+        external_locations=None,
+        connections=None,
+    ):
         self.catalogs = catalogs or ServicioListadoFalso()
         self.schemas = schemas or ServicioListadoFalso()
         self.tables = tables or ServicioListadoFalso()
+        self.volumes = volumes or ServicioListadoFalso()
+        self.registered_models = registered_models or ServicioListadoFalso()
+        self.external_locations = external_locations or ServicioListadoFalso()
+        self.connections = connections or ServicioListadoFalso()
 
 
-def _CrearServicio(catalogs=(), schemas=(), tables=(), limite=None):
+def _CrearServicio(
+    catalogs=(),
+    schemas=(),
+    tables=(),
+    volumes=(),
+    registered_models=(),
+    external_locations=(),
+    connections=(),
+    limite=None,
+):
     """Construye el servicio UI sobre un descubridor UC real y un cliente falso.
 
     Returns:
@@ -79,6 +101,10 @@ def _CrearServicio(catalogs=(), schemas=(), tables=(), limite=None):
         catalogs=ServicioListadoFalso(catalogs),
         schemas=ServicioListadoFalso(schemas),
         tables=ServicioListadoFalso(tables),
+        volumes=ServicioListadoFalso(volumes),
+        registered_models=ServicioListadoFalso(registered_models),
+        external_locations=ServicioListadoFalso(external_locations),
+        connections=ServicioListadoFalso(connections),
     )
     descubridor = DescubridorUc(cliente=cliente, limite=limite)
     return ServicioDescubrimientoUi(descubridor_uc=descubridor), cliente
@@ -169,7 +195,69 @@ def TestFalloDeListadoEsDistinguibleDeListaVacia():
     with pytest.raises(ErrorDescubrimientoOpciones):
         _servicio_con_fallo().DescubrirCatalogos()
 
-    servicio_vacio, _ = _CrearServicio(catalogs=(), schemas=(), tables=())
+    servicio_vacio, _ = _CrearServicio(
+        catalogs=(), schemas=(), tables=(),
+        volumes=(), registered_models=(), external_locations=(), connections=(),
+    )
     assert servicio_vacio.DescubrirCatalogos() == ()
     assert servicio_vacio.DescubrirEsquemas(CATALOGO_VENTAS) == ()
     assert servicio_vacio.DescubrirTablas(CATALOGO_VENTAS, ESQUEMA_BRONCE) == ()
+    assert servicio_vacio.DescubrirVolumenes(CATALOGO_VENTAS, ESQUEMA_BRONCE) == ()
+    assert servicio_vacio.DescubrirModelosMl(CATALOGO_VENTAS, ESQUEMA_BRONCE) == ()
+    assert servicio_vacio.DescubrirExternalLocations() == ()
+    assert servicio_vacio.DescubrirConexiones() == ()
+
+
+def TestVolumenesYModelosConNombreCalificado():
+    """Volúmenes y modelos se traducen con `catalogo.esquema.nombre`."""
+    servicio, cliente = _CrearServicio(
+        volumes=[_Registro(name="bronce_vol_1")],
+        registered_models=[_Registro(name="modelo_riesgo")],
+    )
+
+    volumenes = servicio.DescubrirVolumenes(CATALOGO_VENTAS, ESQUEMA_BRONCE)
+    modelos = servicio.DescubrirModelosMl(CATALOGO_VENTAS, ESQUEMA_BRONCE)
+
+    assert len(volumenes) == 1
+    assert volumenes[0].tipo == TipoObjeto.VOLUMEN
+    assert volumenes[0].identificador == "ventas.bronce.bronce_vol_1"
+    assert len(modelos) == 1
+    assert modelos[0].tipo == TipoObjeto.MODELO_ML
+    assert modelos[0].identificador == "ventas.bronce.modelo_riesgo"
+    # Los listados se pidieron acotados al catálogo y esquema solicitados.
+    assert cliente.volumes.llamadas == [
+        {"catalog_name": CATALOGO_VENTAS, "schema_name": ESQUEMA_BRONCE}
+    ]
+    assert cliente.registered_models.llamadas == [
+        {"catalog_name": CATALOGO_VENTAS, "schema_name": ESQUEMA_BRONCE}
+    ]
+
+
+def TestExternalLocationsYConexionesConNombreSimple():
+    """External locations y connections se traducen por su nombre (una parte)."""
+    servicio, _ = _CrearServicio(
+        external_locations=[_Registro(name="ubicacion_s3")],
+        connections=[_Registro(name="mysql_analitica")],
+    )
+
+    ubicaciones = servicio.DescubrirExternalLocations()
+    conexiones = servicio.DescubrirConexiones()
+
+    assert len(ubicaciones) == 1
+    assert ubicaciones[0].tipo == TipoObjeto.EXTERNAL_LOCATION
+    assert ubicaciones[0].identificador == "ubicacion_s3"
+    assert len(conexiones) == 1
+    assert conexiones[0].tipo == TipoObjeto.CONNECTION
+    assert conexiones[0].identificador == "mysql_analitica"
+
+
+def TestFalloDeListadoUcNuevoSeTraduce():
+    """Un fallo en conexiones se traduce a ErrorDescubrimientoOpciones."""
+    cliente = ClienteUcFalso(
+        connections=ServicioListadoFalso(excepcion=RuntimeError("connections sin scope"))
+    )
+    descubridor = DescubridorUc(cliente=cliente)
+    servicio = ServicioDescubrimientoUi(descubridor_uc=descubridor)
+
+    with pytest.raises(ErrorDescubrimientoOpciones):
+        servicio.DescubrirConexiones()

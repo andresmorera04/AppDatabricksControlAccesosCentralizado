@@ -121,6 +121,26 @@ class ServicioDescubrimientoUi:
             self._DescubridorUc().ListarTablas, catalogo, esquema
         )
 
+    def DescubrirVolumenes(self, catalogo, esquema):
+        """Lista los volúmenes de un par (`catalogo.esquema.volumen`)."""
+        return self._TraducirUc(
+            self._DescubridorUc().ListarVolumenes, catalogo, esquema
+        )
+
+    def DescubrirModelosMl(self, catalogo, esquema):
+        """Lista los modelos ML de un par (`catalogo.esquema.modelo`)."""
+        return self._TraducirUc(
+            self._DescubridorUc().ListarModelosMl, catalogo, esquema
+        )
+
+    def DescubrirExternalLocations(self):
+        """Lista las external locations (`ObjetoSecurable` de una parte)."""
+        return self._TraducirUc(self._DescubridorUc().ListarExternalLocations)
+
+    def DescubrirConexiones(self):
+        """Lista las connections (`ObjetoSecurable` de una parte)."""
+        return self._TraducirUc(self._DescubridorUc().ListarConexiones)
+
     # ------------------------------------------------------------------ #
     # Internos.
     # ------------------------------------------------------------------ #
