@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Proporciona una interfaz web minimalista para otorgar privilegios con la identidad del usuario llamante, guiando la selección de principals, objetos y privilegios, mostrando antes de ejecutar qué ítems están autorizados y presentando después un reporte completo por ítem.
+Proporciona una interfaz web minimalista para otorgar privilegios con la autorización del usuario llamante (identidad OBO y privilegios efectivos), ejecutando con su credencial OBO donde es viable y con la identidad de la App en modo broker donde OBO es inviable, guiando la selección de principals, objetos y privilegios, mostrando antes de ejecutar qué ítems están autorizados y presentando después un reporte completo por ítem.
 
 ## ADDED Requirements
 
 ### Requirement: Autenticación on-behalf-of y aislamiento del llamante
 
-La Databricks App SHALL autenticar al usuario mediante su contexto on-behalf-of y SHALL usar esa misma identidad y credencial para descubrir opciones, resolver privilegios y ejecutar grants. SHALL NO sustituir al llamante por la identidad propia de la App ni compartir credenciales entre sesiones.
+La Databricks App SHALL autenticar al usuario mediante su contexto on-behalf-of y SHALL evaluar toda autorización con su identidad y privilegios efectivos. La ejecución SHALL usar su credencial OBO donde es viable (grants UC vía SQL y ACL de Apps) y la identidad de la App en modo broker donde OBO es inviable (SCIM y ACL del plano de control), únicamente tras validar la autoridad del llamante conforme a `app-broker-grants`. SHALL NO compartir credenciales ni autorizaciones entre sesiones.
 
 #### Scenario: Usuario autenticado correctamente
 
@@ -23,21 +23,36 @@ La Databricks App SHALL autenticar al usuario mediante su contexto on-behalf-of 
 #### Scenario: Dos usuarios con privilegios distintos
 
 - **WHEN** dos usuarios utilizan la App con privilegios efectivos diferentes
-- **THEN** cada sesión descubre, clasifica y ejecuta exclusivamente con la identidad y credencial de su propio llamante
+- **THEN** cada sesión autoriza exclusivamente con la identidad y privilegios de su propio llamante, y cualquier ejecución con la identidad de la App queda condicionada a esa autorización
 
 #### Scenario: No herencia de credenciales de la App en runtime
 
 - **WHEN** el runtime de la App expone en el entorno las credenciales OAuth de su propio service principal
-- **THEN** la composición OBO fija el método de autenticación explícito al token del llamante y ninguna operación de descubrimiento, resolución o grants usa la identidad de la App
+- **THEN** la composición OBO fija el método de autenticación explícito al token del llamante, la identidad de la App jamás se usa para evaluar autorización ni se mezcla con el token OBO, y la ejecución con el SP solo ocurre en modo broker tras validar la autoridad del llamante
+
+#### Scenario: Ejecución broker autorizada en el plano de control
+
+- **WHEN** el llamante tiene validado el privilegio efectivo requerido sobre un warehouse, cluster, serverless compute object o los tokens
+- **THEN** la operación sobre la ACL se ejecuta con la identidad de la App y el evento de bitácora registra el usuario OBO del llamante
+
+#### Scenario: Bloqueo sin autoridad aunque el SP pueda ejecutar
+
+- **WHEN** el llamante carece del privilegio efectivo requerido sobre un objeto del plano de control
+- **THEN** el ítem queda bloqueado con su motivo y no se ejecuta con la identidad de la App, aunque el service principal tenga privilegios suficientes para realizarlo
 
 ### Requirement: Descubrimiento de principals y objetos
 
-La interfaz SHALL ofrecer opciones de usuarios, grupos, service principals y objetos soportados obtenidas del workspace con la credencial del llamante. Un fallo de descubrimiento SHALL presentarse de forma controlada, sin elevar privilegios ni convertirlo en una lista aparentemente vacía.
+La interfaz SHALL ofrecer opciones de usuarios, grupos, service principals y objetos soportados obtenidas del workspace: con la credencial OBO del llamante para Unity Catalog, SQL warehouses y Databricks Apps, y con la identidad de la App (modo broker) para los listados SCIM y de cómputo, cuyos scopes OBO no existen. Un fallo de descubrimiento SHALL presentarse de forma controlada, sin elevar privilegios ni convertirlo en una lista aparentemente vacía.
 
 #### Scenario: Opciones descubiertas para el tipo elegido
 
 - **WHEN** el usuario selecciona un tipo de principal u objeto y el workspace permite listarlo
 - **THEN** la interfaz presenta las entradas descubiertas con identificadores utilizables para construir la solicitud
+
+#### Scenario: Listados SCIM y de cómputo con la identidad de la App
+
+- **WHEN** la interfaz necesita opciones de usuarios, grupos, service principals, clusters o serverless compute objects
+- **THEN** los listados se obtienen con la identidad de la App en modo broker y se presentan como opciones, sin que ello habilite ejecución alguna sin la autorización del llamante
 
 #### Scenario: Descubrimiento denegado o no disponible
 
