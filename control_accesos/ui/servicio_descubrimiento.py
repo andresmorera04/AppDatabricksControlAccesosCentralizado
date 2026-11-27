@@ -19,6 +19,9 @@ incompletos (spec `grant-management-ui`). El servicio NO valida autoridad (eso
 lo hace la disponibilidad, design.md D7).
 """
 
+from control_accesos.canales.reales.descubrimiento_control import (
+    ErrorListadoControl,
+)
 from control_accesos.canales.reales.descubrimiento_principales import (
     ErrorListadoPrincipales,
 )
@@ -48,7 +51,12 @@ class ServicioDescubrimientoUi:
         descubridor_uc: adaptador UC OBO (`DescubridorUc`).
     """
 
-    def __init__(self, descubridor_principales=None, descubridor_uc=None):
+    def __init__(
+        self,
+        descubridor_principales=None,
+        descubridor_uc=None,
+        descubridor_control=None,
+    ):
         """Inicializa el servicio con los descubridores inyectados.
 
         Args:
@@ -56,9 +64,13 @@ class ServicioDescubrimientoUi:
                 SCIM-SP; obligatorio para los métodos de principals.
             descubridor_uc (DescubridorUc | None): adaptador UC OBO; obligatorio
                 para los métodos de objetos de Unity Catalog.
+            descubridor_control (DescubridorControl | None): adaptador del plano
+                de control (SP + OBO); obligatorio para clusters, serverless,
+                warehouses, apps y USO_TOKEN.
         """
         self._descubridor_principales = descubridor_principales
         self._descubridor_uc = descubridor_uc
+        self._descubridor_control = descubridor_control
 
     # ------------------------------------------------------------------ #
     # Principals (SCIM con el service principal, contexto broker).
@@ -142,6 +154,30 @@ class ServicioDescubrimientoUi:
         return self._TraducirUc(self._DescubridorUc().ListarConexiones)
 
     # ------------------------------------------------------------------ #
+    # Plano de control (clusters/serverless con SP; warehouses/apps con OBO).
+    # ------------------------------------------------------------------ #
+
+    def DescubrirClusters(self):
+        """Lista los clusters all-purpose con el SP (`ObjetoSecurable`)."""
+        return self._TraducirControl(self._DescubridorControl().ListarClusters)
+
+    def DescubrirServerless(self):
+        """Lista los serverless compute objects con el SP."""
+        return self._TraducirControl(self._DescubridorControl().ListarServerless)
+
+    def DescubrirWarehouses(self):
+        """Lista los SQL warehouses con OBO."""
+        return self._TraducirControl(self._DescubridorControl().ListarWarehouses)
+
+    def DescubrirApps(self):
+        """Lista las Databricks Apps con OBO."""
+        return self._TraducirControl(self._DescubridorControl().ListarApps)
+
+    def DescubrirUsoTokens(self):
+        """Devuelve el singleton USO_TOKEN (identificador lógico configurado)."""
+        return self._TraducirControl(self._DescubridorControl().ListarUsoTokens)
+
+    # ------------------------------------------------------------------ #
     # Internos.
     # ------------------------------------------------------------------ #
 
@@ -162,6 +198,15 @@ class ServicioDescubrimientoUi:
                 "esta acción."
             )
         return self._descubridor_uc
+
+    def _DescubridorControl(self):
+        """Devuelve el descubridor de control o falla de forma explícita."""
+        if self._descubridor_control is None:
+            raise ValueError(
+                "No hay un descubridor del plano de control (SP + OBO) "
+                "dispuesto para esta acción."
+            )
+        return self._descubridor_control
 
     def _TraducirPrincipales(self, operacion):
         """Ejecuta un listado de principals y traduce, tipificando el fallo.
@@ -194,6 +239,25 @@ class ServicioDescubrimientoUi:
             raise ErrorDescubrimientoOpciones(
                 f"[{MODULO_DESCUBRIMIENTO_UI}] No se pudieron descubrir los "
                 f"objetos de Unity Catalog: {excepcion}"
+            ) from excepcion
+
+        return tuple(
+            ObjetoSecurable(identificador=objeto.identificador, tipo=objeto.tipo)
+            for objeto in descubiertos
+        )
+
+    def _TraducirControl(self, operacion):
+        """Ejecuta un listado del plano de control y traduce.
+
+        Raises:
+            ErrorDescubrimientoOpciones: si el listado falla (no si está vacío).
+        """
+        try:
+            descubiertos = operacion()
+        except ErrorListadoControl as excepcion:
+            raise ErrorDescubrimientoOpciones(
+                f"[{MODULO_DESCUBRIMIENTO_UI}] No se pudieron descubrir los "
+                f"objetos del plano de control: {excepcion}"
             ) from excepcion
 
         return tuple(
