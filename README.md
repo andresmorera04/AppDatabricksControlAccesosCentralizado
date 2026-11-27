@@ -209,11 +209,12 @@ deshabilita previsualización/ejecución.
 
 ```bash
 databricks bundle sync                              # sube el bundle desplegable a WSFS
-databricks apps create SecurityManager --profile <PERFIL> \
-  --forward-user-access-token \
+databricks apps create --profile <PERFIL> --forward-user-access-token \
   --json '{"name":"SecurityManager","user_api_scopes":["sql","apps","catalog.catalogs","catalog.schemas","catalog.tables","catalog.connections","workspace.workspace"]}'
 databricks apps deploy SecurityManager --source-code-path /Workspace/Users/<usuario>/spike-control-accesos --profile <PERFIL>
 ```
+
+> `apps create` no admite nombre posicional junto a `--json` (el nombre va en el JSON); `apps deploy` sí lleva el nombre posicional.
 
 > En Azure Databricks, la App **permanece detenida fuera de las ejecuciones de prueba** (regla de costos, D13): se arranca solo para correr pruebas y se detiene al terminar.
 
