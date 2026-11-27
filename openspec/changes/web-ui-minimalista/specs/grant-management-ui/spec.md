@@ -199,3 +199,22 @@ Todos los controles, estados, instrucciones y mensajes visibles de la interfaz S
 
 - **WHEN** la interfaz presenta un ítem bloqueado por falta de privilegios
 - **THEN** el mensaje identifica el objeto, su plano, el privilegio requerido y el privilegio faltante
+
+### Requirement: Despliegue multi-entorno Free y Azure Databricks
+
+La App `SecurityManager` SHALL poder desplegarse y operar tanto en `andresFree` como en `andresAzureDev` (dominio real), con la configuración de cada entorno resuelta desde `config/app_properties.json` (incluido `IdWarehouse`). En Azure, la App SHALL permanecer detenida fuera de las ejecuciones de prueba para evitar costos.
+
+#### Scenario: Ejecución en Free
+
+- **WHEN** la App se despliega en `andresFree`
+- **THEN** el flujo completo opera con la configuración de ese entorno y su `IdWarehouse` correspondiente
+
+#### Scenario: Ejecución en Azure Databricks
+
+- **WHEN** la App se despliega en `andresAzureDev`
+- **THEN** el flujo completo opera con la configuración de ese entorno, incluida la verificación de aislamiento con un segundo llamante real
+
+#### Scenario: App detenida fuera de pruebas en Azure
+
+- **WHEN** no hay ejecuciones de prueba en curso en Azure
+- **THEN** la App permanece detenida y solo se arranca para ejecutar las pruebas, deteniéndose al terminar

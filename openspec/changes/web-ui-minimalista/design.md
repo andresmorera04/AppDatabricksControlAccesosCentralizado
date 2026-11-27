@@ -71,7 +71,7 @@ Si el workspace no ofrece un scope necesario para una operación del alcance, la
 
 La decisión original prescribía Databricks Connect en runtime. El spike (tareas 2.4/2.6, hallazgo F2) lo descartó empíricamente en la App: la imagen de Apps usa Python 3.11, que obliga a `databricks-connect` 15.4 (basado en Spark 3.5), cuyo `Builder` no tiene `create()` —método que solo existe en Connect ≥16, incompatible con Python 3.11—, y `getOrCreate()` es inadmisible porque reutiliza la sesión activa del proceso y rompería el aislamiento OBO por llamante (D3).
 
-Transporte revisado: `SesionSqlRemota` sobre la SQL Statement Execution API del SDK (scope `sql`, verificado GO en el spike para listado de warehouses), construida por acción con host y token del llamante y `auth_type='pat'`. El encaje está verificado en el código existente: `CanalSqlDatos` solo exige `.sql()` a su sesión; los totales de lote se resuelven con un agregador alternativo en Python sobre el mismo puerto (el pipeline ya acepta `sesion_spark=None`); la escritura de bitácora usa INSERT vía REST (D10). La alternativa antes descartada (Statement Execution) se convierte en el único transporte viable en la App, con alcance acotado y probado.
+Transporte revisado: `SesionSqlRemota` sobre la SQL Statement Execution API del SDK (scope `sql`, verificado GO en el spike para listado de warehouses), construida por acción con host y token del llamante y `auth_type='pat'`. El warehouse de ejecución del SQL OBO se resuelve desde la propiedad **`IdWarehouse`** de `config/app_properties.json` (decisión humana 2026-11-27, D13), dinámica por entorno (Free/Azure): ningún id queda embebido en código ni en `app.py`. El encaje está verificado en el código existente: `CanalSqlDatos` solo exige `.sql()` a su sesión; los totales de lote se resuelven con un agregador alternativo en Python sobre el mismo puerto (el pipeline ya acepta `sesion_spark=None`); la escritura de bitácora usa INSERT vía REST (D10). La alternativa antes descartada (Statement Execution) se convierte en el único transporte viable en la App, con alcance acotado y probado.
 
 `requirements.txt` contiene Streamlit y `databricks-sdk`; ya no contiene `databricks-connect`, y nunca `pytest`, `pyspark` ni `delta-spark`. `requirements-dev.txt` conserva las dependencias de suite (`pytest`, `pyspark`, `delta-spark`, necesarias para la regresión de C1–C8) y los pins compartidos SDK/Streamlit, sin `-r requirements.txt`. La duplicación de pins compartidos se mantiene igual mediante pruebas de consistencia.
 
@@ -124,7 +124,7 @@ La inicialización idempotente de persistencia y los escritores de bitácora ope
 
 ### D11 — Errores seguros y configuración completa
 
-Todos los límites de lote/opciones, nombres de atributos de entorno, identificador lógico de tokens y parámetros de despliegue variables se declaran en `config/app_properties.json` o en `app.yaml`, y se leen mediante `ConfiguracionApp`. Los secretos solo llegan por mecanismos de Databricks Apps.
+Todos los límites de lote/opciones, nombres de atributos de entorno, identificador lógico de tokens, el `IdWarehouse` del SQL OBO (D13) y parámetros de despliegue variables se declaran en `config/app_properties.json` o en `app.yaml`, y se leen mediante `ConfiguracionApp`. Los secretos solo llegan por mecanismos de Databricks Apps.
 
 Controlador y servicios capturan excepciones con `try/except`, registran módulo, contexto y usuario cuando exista, y muestran mensajes de dominio sin stack trace. Antes de visualizar o registrar errores se redactan tokens, headers `Authorization`, `x-forwarded-access-token`, `DATABRICKS_CLIENT_SECRET` y secretos con prefijo `CONTROL_ACCESOS_`. Nunca se serializa el contexto OBO completo.
 
@@ -133,6 +133,18 @@ Controlador y servicios capturan excepciones con `try/except`, registran módulo
 Las unitarias cubren presentación, huella/estado, cardinalidad, disponibilidad, traducción de descubrimiento, redacción y fábrica con dobles. Las funcionales usan el controlador y, cuando sea útil, `streamlit.testing.v1.AppTest`, con identidad/canales/servicios simulados para recorrer la UI sin workspace.
 
 Las integrales `free` despliegan primero el spike y después la App en `andresFree`, verifican health check, OBO, descubrimiento, split y grants con restauración de ACL/estado. Solo los casos imposibles en Free usan `azure_approval`. Las pruebas de aceptación quedan trazadas 1:1 a los escenarios del delta, incluidos dos llamantes aislados, denegado parcial y N a M. Los resultados se conservan con `--junitxml` bajo `results/web-ui-minimalista/` para C10.
+
+### D13 — Decisiones operativas del humano (2026-11-27)
+
+Registro de las decisiones tomadas tras la reanudación de C9, que gobiernan despliegue y pruebas:
+
+1. **Workspace admin del SP se mantiene** como configuración definitiva del modo broker (sin change de endurecimiento de privilegios).
+2. **Azure autorizado** (`azure_approval` concedida): primero se completa la verificación en `andresFree` y después en `andresAzureDev`.
+3. **Nombre de la App final: `SecurityManager`**; el dominio real es Azure Databricks, pero la App debe ser ejecutable también desde Free.
+4. **Propiedad `IdWarehouse`** en `config/app_properties.json`: id del SQL Warehouse usado para el SQL OBO, dinámica por entorno (D5/D11).
+5. **Segundo llamante de aislamiento:** service principal con Client Id `1738687d-4838-49ef-83fd-521f935a9ec2`; su secreto lo gestiona el humano fuera del repositorio (vigencia limitada, nunca versionado); si expira antes de las pruebas Azure, el humano lo renueva.
+6. **Regla de costos:** la App permanece **detenida mientras no se ejecutan pruebas**; se arranca solo para ejecutarlas y se detiene al terminar (aplica especialmente a Azure).
+7. **Revisión humana del camino de autorización** (D2/pre-flight y revalidación) cuando se genere el código, como barrera crítica del modelo broker; el humano probará además la semántica C3 de privilegio exacto y revisará los resultados al generarse.
 
 ## Risks / Trade-offs
 
@@ -158,4 +170,4 @@ Las integrales `free` despliegan primero el spike y después la App en `andresFr
 
 ## Open Questions
 
-Tras el GO del change broker no quedan preguntas diferibles que cambien specs, arquitectura o desglose. Pendientes ya registrados como tareas, no como preguntas: la verificación cross-cloud en `andresAzureDev` (tarea 2.11, `azure_approval`) y el escritor de bitácora REST (tarea 5.2, D10). Si una superficie adicional resultara inviable en las integrales, se eleva con evidencia en lugar de improvisar otro canal o elevar la identidad sin autorización.
+Sin preguntas abiertas: las decisiones operativas quedaron registradas en D13 (2026-11-27). Pendientes ya planificados como tareas, no como preguntas: la verificación cross-cloud en `andresAzureDev` (tarea 2.11, autorizada con la regla de parada de D13), la propiedad `IdWarehouse` (tarea 2.12) y el escritor de bitácora REST (tarea 5.2). Si una superficie adicional resultara inviable en las integrales, se eleva con evidencia en lugar de improvisar otro canal o elevar la identidad sin autorización.
