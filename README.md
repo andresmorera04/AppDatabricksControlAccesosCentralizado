@@ -215,9 +215,7 @@ databricks apps create SecurityManager --profile <PERFIL> \
 databricks apps deploy SecurityManager --source-code-path /Workspace/Users/<usuario>/spike-control-accesos --profile <PERFIL>
 ```
 
-> En Azure Databricks, la App **permanece detenida fuera de las ejecuciones de
-> prueba** (regla de costos, D13): se arranca solo para correr pruebas y se
-> detiene al terminar.
+> En Azure Databricks, la App **permanece detenida fuera de las ejecuciones de prueba** (regla de costos, D13): se arranca solo para correr pruebas y se detiene al terminar.
 
 ### Scopes, recursos y configuración por entorno
 
