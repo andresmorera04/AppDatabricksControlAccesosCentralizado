@@ -202,7 +202,7 @@ Todos los controles, estados, instrucciones y mensajes visibles de la interfaz S
 
 ### Requirement: Despliegue multi-entorno Free y Azure Databricks
 
-La App `SecurityManager` SHALL poder desplegarse y operar tanto en `andresFree` como en `andresAzureDev` (dominio real), con la configuración de cada entorno resuelta desde `config/app_properties.json` (incluido `IdWarehouse`). En Azure, la App SHALL permanecer detenida fuera de las ejecuciones de prueba para evitar costos.
+La App `securitymanager` (título `SecurityManager`) SHALL poder desplegarse y operar tanto en `andresFree` como en `andresAzureDev` (dominio real), con la configuración de cada entorno resuelta desde `config/app_properties.json` (incluido `IdWarehouse`). En Azure, la App SHALL permanecer detenida fuera de las ejecuciones de prueba para evitar costos.
 
 #### Scenario: Ejecución en Free
 

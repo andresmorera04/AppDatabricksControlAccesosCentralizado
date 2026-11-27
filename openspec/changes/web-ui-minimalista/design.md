@@ -140,9 +140,9 @@ Registro de las decisiones tomadas tras la reanudación de C9, que gobiernan des
 
 1. **Workspace admin del SP se mantiene** como configuración definitiva del modo broker (sin change de endurecimiento de privilegios).
 2. **Azure autorizado** (`azure_approval` concedida): primero se completa la verificación en `andresFree` y después en `andresAzureDev`.
-3. **Nombre de la App final: `SecurityManager`**; el dominio real es Azure Databricks, pero la App debe ser ejecutable también desde Free.
+3. **Nombre de la App final: `securitymanager`** (minúsculas y guiones, requisito de Databricks Apps; título de UI `SecurityManager`); dominio real Azure Databricks, ejecutable también desde Free.
 4. **Propiedad `IdWarehouse`** en `config/app_properties.json`: id del SQL Warehouse usado para el SQL OBO, dinámica por entorno (D5/D11).
-5. **Segundo llamante de aislamiento:** service principal con Client Id `1738687d-4838-49ef-83fd-521f935a9ec2`; su secreto lo gestiona el humano fuera del repositorio (vigencia limitada, nunca versionado); si expira antes de las pruebas Azure, el humano lo renueva.
+5. **Segundo llamante de aislamiento:** en `andresFree`, service principal Client Id `1738687d-4838-49ef-83fd-521f935a9ec2` (secreto vigente hasta el 2026-11-29, gestionado por el humano, nunca versionado); para `andresAzureDev` (2.11/7.4) el humano aportará un **service principal distinto de Azure**. Ningún secreto se escribe en el repositorio.
 6. **Regla de costos:** la App permanece **detenida mientras no se ejecutan pruebas**; se arranca solo para ejecutarlas y se detiene al terminar (aplica especialmente a Azure).
 7. **Revisión humana del camino de autorización** (D2/pre-flight y revalidación) cuando se genere el código, como barrera crítica del modelo broker; el humano probará además la semántica C3 de privilegio exacto y revisará los resultados al generarse.
 

@@ -180,9 +180,10 @@ efectivos del llamante y su revalidación al confirmar (design.md D2 del change)
 Cualquier propuesta de reducirlos se gestiona como un change de OpenSpec
 separado con evidencia (spec `app-broker-grants`).
 
-## Despliegue de `SecurityManager` (Databricks App)
+## Despliegue de `securitymanager` (Databricks App, título `SecurityManager`)
 
-La interfaz se publica como Databricks App **`SecurityManager`**. Es ejecutable
+La interfaz se publica como Databricks App **`securitymanager`** (título de UI
+`SecurityManager`). Es ejecutable
 tanto en `andresFree` como en `andresAzureDev` (dominio real de producción); la
 configuración es dinámica por entorno a través de `config/app_properties.json`.
 
@@ -210,8 +211,8 @@ deshabilita previsualización/ejecución.
 ```bash
 databricks bundle sync                              # sube el bundle desplegable a WSFS
 databricks apps create --profile <PERFIL> --forward-user-access-token \
-  --json '{"name":"SecurityManager","user_api_scopes":["sql","apps","catalog.catalogs","catalog.schemas","catalog.tables","catalog.connections","workspace.workspace"]}'
-databricks apps deploy SecurityManager --source-code-path /Workspace/Users/<usuario>/spike-control-accesos --profile <PERFIL>
+  --json '{"name":"securitymanager","user_api_scopes":["sql","apps","catalog.catalogs","catalog.schemas","catalog.tables","catalog.connections","workspace.workspace"]}'
+databricks apps deploy securitymanager --source-code-path /Workspace/Users/<usuario>/spike-control-accesos --profile <PERFIL>
 ```
 
 > `apps create` no admite nombre posicional junto a `--json` (el nombre va en el JSON); `apps deploy` sí lleva el nombre posicional.
@@ -233,7 +234,7 @@ databricks apps deploy SecurityManager --source-code-path /Workspace/Users/<usua
 ### Rollback
 
 Retirar el `Workspace admin` y los entitlements del service principal, detener
-el despliegue (`databricks apps delete SecurityManager`) y revertir el commit.
+el despliegue (`databricks apps delete securitymanager`) y revertir el commit.
 Las tablas de bitácora permanecen; los grants/ACLs de prueba se revocan/fixture
 (capa integral).
 

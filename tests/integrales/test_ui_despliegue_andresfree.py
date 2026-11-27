@@ -37,7 +37,7 @@ from adaptador_sql_databricks import (
 pytestmark = pytest.mark.free
 
 # App final y scopes OBO esperados (design.md D13 / spike 2.4).
-NOMBRE_APP = "SecurityManager"
+NOMBRE_APP = "securitymanager"
 SCOPES_ESPERADOS = frozenset(
     {
         "sql",
